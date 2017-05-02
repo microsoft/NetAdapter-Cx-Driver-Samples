@@ -7,22 +7,25 @@ This sample will guide you through implementing a complete network driver using 
 
 ## Landmarks
 
-### [DriverEntry](src\driver.cpp)
+### [DriverEntry](driver.cpp)
 This is where your driver gets started. Check out DriverEntry to see how to initialize a WDF Driver with logging. Then check out EvtDriverDeviceAdd to see how to initialize a device with a NetAdapter object.
 
-### [WdfDevice](src\device.cpp)
-One of the biggest benefits of the new NetAdapter class extension is that you have full access to the WDF framework. This contains the implementation of the RTL8168D power transitions and interrupts.
+### [WdfDevice](device.cpp)
+One of the biggest benefits of the new NetAdapter class extension is that you have full access to the WDF framework. This contains the implementation of the RTL8168D resource assignment.
 
-### [NetAdapter](src\adapter.cpp)
+### [NetAdapter](adapter.cpp)
 Check out the unique features of the NetAdapter class extension. Here's where the adapter reports capabilities to the network stack and creates its datapath queues.
 
-### [NetRequestQueue](src\oid.cpp)
+### [Power](power.cpp)
+NetAdapter drivers can take full advantage of the WDF power state machine. Check out how power tranisitions are implemented, and how NetAdapter concepts like WakeOnMagicPacket integrate directly with WDF power transitions.
+
+### [NetRequestQueue](oid.cpp)
 The adapter's control path is how the network stack sets  and queries adapter parameters at runtime. NetAdapter allows you to provide specific query/set handlers that only apply to certain requests. Specific handlers reduce cognitive overhead while writing and understanding the query/set code.
 
-### [NetTxQueue](src\txqueue.cpp)
+### [NetTxQueue](txqueue.cpp)
 The sample driver implements its transmit data queue using the DMA IO Helper. This IO Helper simplifies scatter gather DMA operations and mapping NET_PACKET descriptors to RTL8168D's software transmit descriptors.
 
-### [NetRxQueue](src\rxqueue.cpp)
+### [NetRxQueue](rxqueue.cpp)
 Implement your receive queue in 200 lines of code! The NetAdapter data fits perfectly with RTL8168D's data path.
 
 ## Debugging and Development

@@ -3,38 +3,22 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 14
 VisualStudioVersion = 14.0.25420.1
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RtEthSample", "src\RtEthSample.vcxproj", "{EAC78963-C6D0-4C8C-918D-5B5996AE80AC}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RtEthSample", "RtEthSample.vcxproj", "{EAC78963-C6D0-4C8C-918D-5B5996AE80AC}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
-		Debug_RS3|x64 = Debug_RS3|x64
-		Debug_RS3|x86 = Debug_RS3|x86
 		Debug|x64 = Debug|x64
 		Debug|x86 = Debug|x86
-		Release_RS3|x64 = Release_RS3|x64
-		Release_RS3|x86 = Release_RS3|x86
 		Release|x64 = Release|x64
 		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{EAC78963-C6D0-4C8C-918D-5B5996AE80AC}.Debug_RS3|x64.ActiveCfg = Debug_RS3|x64
-		{EAC78963-C6D0-4C8C-918D-5B5996AE80AC}.Debug_RS3|x64.Build.0 = Debug_RS3|x64
-		{EAC78963-C6D0-4C8C-918D-5B5996AE80AC}.Debug_RS3|x64.Deploy.0 = Debug_RS3|x64
-		{EAC78963-C6D0-4C8C-918D-5B5996AE80AC}.Debug_RS3|x86.ActiveCfg = Debug_RS3|Win32
-		{EAC78963-C6D0-4C8C-918D-5B5996AE80AC}.Debug_RS3|x86.Build.0 = Debug_RS3|Win32
-		{EAC78963-C6D0-4C8C-918D-5B5996AE80AC}.Debug_RS3|x86.Deploy.0 = Debug_RS3|Win32
 		{EAC78963-C6D0-4C8C-918D-5B5996AE80AC}.Debug|x64.ActiveCfg = Debug|x64
 		{EAC78963-C6D0-4C8C-918D-5B5996AE80AC}.Debug|x64.Build.0 = Debug|x64
 		{EAC78963-C6D0-4C8C-918D-5B5996AE80AC}.Debug|x64.Deploy.0 = Debug|x64
 		{EAC78963-C6D0-4C8C-918D-5B5996AE80AC}.Debug|x86.ActiveCfg = Debug|Win32
 		{EAC78963-C6D0-4C8C-918D-5B5996AE80AC}.Debug|x86.Build.0 = Debug|Win32
 		{EAC78963-C6D0-4C8C-918D-5B5996AE80AC}.Debug|x86.Deploy.0 = Debug|Win32
-		{EAC78963-C6D0-4C8C-918D-5B5996AE80AC}.Release_RS3|x64.ActiveCfg = Release_RS3|x64
-		{EAC78963-C6D0-4C8C-918D-5B5996AE80AC}.Release_RS3|x64.Build.0 = Release_RS3|x64
-		{EAC78963-C6D0-4C8C-918D-5B5996AE80AC}.Release_RS3|x64.Deploy.0 = Release_RS3|x64
-		{EAC78963-C6D0-4C8C-918D-5B5996AE80AC}.Release_RS3|x86.ActiveCfg = Release_RS3|Win32
-		{EAC78963-C6D0-4C8C-918D-5B5996AE80AC}.Release_RS3|x86.Build.0 = Release_RS3|Win32
-		{EAC78963-C6D0-4C8C-918D-5B5996AE80AC}.Release_RS3|x86.Deploy.0 = Release_RS3|Win32
 		{EAC78963-C6D0-4C8C-918D-5B5996AE80AC}.Release|x64.ActiveCfg = Release|x64
 		{EAC78963-C6D0-4C8C-918D-5B5996AE80AC}.Release|x64.Build.0 = Release|x64
 		{EAC78963-C6D0-4C8C-918D-5B5996AE80AC}.Release|x64.Deploy.0 = Release|x64
