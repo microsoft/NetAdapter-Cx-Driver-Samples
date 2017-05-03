@@ -1,4 +1,4 @@
- # RTL8168D Sample Driver
+# RTL8168D Sample Driver
 
 This is an implementation of a NetAdapter driver targetting the RTL8168D chipset. It implements OID handling, data path, and some basic offloads, including checksum offload.
 
@@ -120,5 +120,5 @@ Whenever the driver is loaded, your new driver will be used.
 ## Known Issues
 - Windows 1703 bugchecks when the OS tries to send packet with 20 or more fragments
 - VLAN is not yet implemented
-- Current NDISTest has some false positives when running against this sample driver
+- NDISTest, version 1703, has some false positives when running against a NetAdapter driver
 - MAC address is not restored to the value in EEPROM until after a complete power cycle
