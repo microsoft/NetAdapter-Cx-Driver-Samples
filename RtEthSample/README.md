@@ -26,7 +26,7 @@ The adapter's control path is how the network stack sets  and queries adapter pa
 The sample driver implements its transmit data queue using the DMA IO Helper. This IO Helper simplifies scatter gather DMA operations and mapping NET_PACKET descriptors to RTL8168D's software transmit descriptors.
 
 ### [NetRxQueue](rxqueue.cpp)
-Implement your receive queue in 200 lines of code! The NetAdapter data fits perfectly with RTL8168D's data path.
+Implement your receive queue in 200 lines of code! The NetAdapter data path fits perfectly with RTL8168D's data path.
 
 ## Debugging and Development
 
@@ -118,5 +118,7 @@ Then, in WinDbg:
 Whenever the driver is loaded, your new driver will be used.
 
 ## Known Issues
-- IPv6 Checksum Offload not yet implemented
-- Windows 1703 bugchecks when OS tries to send packet with 20 or more fragments
+- Windows 1703 bugchecks when the OS tries to send packet with 20 or more fragments
+- VLAN is not yet implemented
+- NDISTest, version 1703, has some false positives when running against a NetAdapter driver
+- MAC address is not restored to the value in EEPROM until after a complete power cycle
