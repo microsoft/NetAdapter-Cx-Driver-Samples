@@ -361,16 +361,6 @@ Arguments:
             &txConfig,
             &txQueue));
 
-    // Now allocate space for the NIC context (if any)
-    if (TxQueueAttributes != NULL)
-    {
-        _TX_DMA_FX_RETURN_IF_NTSTATUS_FAILED(
-            WdfObjectAllocateContext(
-                txQueue,
-                TxQueueAttributes,
-                NULL));
-    }
-
     // Initialize TxDmaFx object
     TxDmaFx *dmaFx = _TxDmaFxGetContext(txQueue);
 
@@ -388,6 +378,16 @@ Arguments:
         _TxDmaFxInitialize(
             dmaFx, 
             dmaBypass));
+
+    // Now allocate space for the NIC context (if any)
+    if (TxQueueAttributes != NULL)
+    {
+        _TX_DMA_FX_RETURN_IF_NTSTATUS_FAILED(
+            WdfObjectAllocateContext(
+                txQueue,
+                TxQueueAttributes,
+                NULL));
+    }
 
     *TxQueue = txQueue;
 
