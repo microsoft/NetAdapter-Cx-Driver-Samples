@@ -27,6 +27,9 @@
     <ClInclude Include="device.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="eeprom.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="trace.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -72,6 +75,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="device.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="eeprom.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="oid.cpp">

@@ -213,14 +213,14 @@ typedef struct _RT_MAC
     // 00
     UCHAR ID[6];
     USHORT RESV_06_07;
-    UCHAR MulticastReg0;
-    UCHAR MulticastReg1;
-    UCHAR MulticastReg2;
-    UCHAR MulticastReg3;
-    UCHAR MulticastReg4;
-    UCHAR MulticastReg5;
-    UCHAR MulticastReg6;
     UCHAR MulticastReg7;
+    UCHAR MulticastReg6;
+    UCHAR MulticastReg5;
+    UCHAR MulticastReg4;
+    UCHAR MulticastReg3;
+    UCHAR MulticastReg2;
+    UCHAR MulticastReg1;
+    UCHAR MulticastReg0;
     
     // 10
     ULONG DTCCRLow;
@@ -372,7 +372,7 @@ static_assert(sizeof(RT_MAC) == 0x100, "Size of RT_MAC is specified by hardware"
 
 #pragma region Register Constants
 
-// MulticastReg0: 0x8
+// MulticastReg7: 0x8
 #define MAX_NIC_MULTICAST_REG 8
 
 // DTCCR: 0x10

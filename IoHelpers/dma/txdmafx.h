@@ -1,6 +1,6 @@
-/*++
+// Copyright (C) Microsoft Corporation. All rights reserved.
 
-Copyright (C) Microsoft Corporation. All rights reserved.
+/*++
 
 NetAdapterCx NETTXQUEUE DMA Scatter/Gather Framework
 
@@ -131,7 +131,7 @@ Description:
             {
                 // If we are using DMA APIs make sure we return the resources we
                 // acquired
-                TX_DMA_FX_PACKET_CONTEXT *fxPacketContext = _TxDmaFxGetPacketContext(packet, DmaFx);
+                TX_DMA_FX_PACKET_CONTEXT *fxPacketContext = _TxDmaFxGetPacketContextFromToken(packet, DmaFx->ContextToken);
 
                 // Even when using DMA APIs, we might still have a NULL SGL if
                 // the packet was bounced
@@ -324,6 +324,19 @@ Arguments:
         dmaBypass = FALSE;
     }
 
+    // We only need a packet context if using DMA APIs
+    if (!dmaBypass)
+    {
+        // Configure a packet context area to hold DMA mapping information
+        NET_PACKET_CONTEXT_ATTRIBUTES packetContextAttribs;
+        NET_PACKET_CONTEXT_ATTRIBUTES_INIT_TYPE(&packetContextAttribs, TX_DMA_FX_PACKET_CONTEXT);
+
+        _TX_DMA_FX_RETURN_IF_NTSTATUS_FAILED(
+            NetTxQueueInitAddPacketContextAttributes(
+                NetTxQueueInit,
+                &packetContextAttribs));
+    }
+
     // The framework only intercepts the Advance callback (to map and unmap the 
     // incoming packets), the others go directly to the ones the NIC driver provides
     NET_TXQUEUE_CONFIG txConfig;
@@ -332,21 +345,6 @@ Arguments:
         _TxDmaFxAdvance,
         Configuration->EvtTxQueueSetNotificationEnabled,
         Configuration->EvtTxQueueCancel);
-
-    ULONG_PTR fxPacketContextOffset = 0;
-    // We only need a packet context if using DMA APIs
-    if (!dmaBypass)
-    {
-        ULONG_PTR alignedClientContextSize = ALIGN_UP_BY(Configuration->ContextTypeInfo->ContextSize, __alignof(_TX_DMA_FX_PACKET_CONTEXT));
-        fxPacketContextOffset = alignedClientContextSize;
-
-        ULONG_PTR newContextSize = alignedClientContextSize + sizeof(_TX_DMA_FX_PACKET_CONTEXT);
-
-        WDF_OBJECT_CONTEXT_TYPE_INFO *typeInfo = (WDF_OBJECT_CONTEXT_TYPE_INFO *)Configuration->ContextTypeInfo;
-        typeInfo->ContextSize = newContextSize;
-    }
-
-    txConfig.ContextTypeInfo = Configuration->ContextTypeInfo;
 
     // Configure a private Tx Queue context to hold DMA information, the NIC
     // is not allowed to modify the data stored in it
@@ -361,6 +359,21 @@ Arguments:
             &txConfig,
             &txQueue));
 
+    // Initialize TxDmaFx object
+    TxDmaFx *dmaFx = _TxDmaFxGetContext(txQueue);
+
+    dmaFx->QueueHandle = txQueue;
+    dmaFx->RingBuffer = NetTxQueueGetRingBuffer(txQueue);
+    dmaFx->Config = *Configuration;
+
+    if(!dmaBypass)
+        dmaFx->ContextToken = NET_TXQUEUE_GET_PACKET_CONTEXT_TOKEN(txQueue, TX_DMA_FX_PACKET_CONTEXT);
+
+    _TX_DMA_FX_RETURN_IF_NTSTATUS_FAILED(
+        _TxDmaFxInitialize(
+            dmaFx, 
+            dmaBypass));
+
     // Now allocate space for the NIC context (if any)
     if (TxQueueAttributes != NULL)
     {
@@ -370,24 +383,6 @@ Arguments:
                 TxQueueAttributes,
                 NULL));
     }
-
-    // Initialize TxDmaFx object
-    TxDmaFx *dmaFx = _TxDmaFxGetContext(txQueue);
-
-    dmaFx->QueueHandle = txQueue;
-    dmaFx->RingBuffer = NetTxQueueGetRingBuffer(txQueue);
-    dmaFx->Config = *Configuration;
-
-    if (!dmaBypass)
-    {
-        dmaFx->FxPacketContextOffset = fxPacketContextOffset;
-        dmaFx->FxPacketContextTypeInfo = Configuration->ContextTypeInfo;
-    }
-
-    _TX_DMA_FX_RETURN_IF_NTSTATUS_FAILED(
-        _TxDmaFxInitialize(
-            dmaFx, 
-            dmaBypass));
 
     *TxQueue = txQueue;
 

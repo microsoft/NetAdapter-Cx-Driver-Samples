@@ -15,7 +15,7 @@
 #include "configuration.h"
 #include "adapter.h"
 
-typedef struct _RT_REG_ENTRY
+typedef struct _RT_ADVANCED_PROPERTY
 {
     NDIS_STRING RegName;  // variable name text
     UINT FieldOffset;     // offset to RT_ADAPTER field
@@ -23,23 +23,29 @@ typedef struct _RT_REG_ENTRY
     UINT Default;         // default value to use
     UINT Min;             // minimum value allowed
     UINT Max;             // maximum value allowed
-} RT_ADVANCED_PROPERTIES;
+} RT_ADVANCED_PROPERTY;
 
 #define RT_OFFSET(field)   ((UINT)FIELD_OFFSET(RT_ADAPTER,field))
 #define RT_SIZE(field)     sizeof(((RT_ADAPTER *)0)->field)
 
-RT_ADVANCED_PROPERTIES RtSupportedProperties[] =
+RT_ADVANCED_PROPERTY RtSupportedProperties[] =
 {
-    // reg value name                               Offset in RT_ADAPTER                 Field size                         Default Value                     Min                               Max
-    { NDIS_STRING_CONST("*SpeedDuplex"),            RT_OFFSET(SpeedDuplex),              RT_SIZE(SpeedDuplex),              RtSpeedDuplexModeAutoNegotiation, RtSpeedDuplexModeAutoNegotiation, RtSpeedDuplexMode1GFullDuplex },
-    { NDIS_STRING_CONST("*TransmitBuffers"),        RT_OFFSET(TransmitBuffers),          RT_SIZE(TransmitBuffers),          128,                              RT_MIN_TCB,                       RT_MAX_TCB },
-    { NDIS_STRING_CONST("*IPChecksumOffloadIPv4"),  RT_OFFSET(IPChksumOffv4),            RT_SIZE(IPChksumOffv4),            RtChecksumOffloadTxRxEnabled,     RtChecksumOffloadDisabled,        RtChecksumOffloadTxRxEnabled },
-    { NDIS_STRING_CONST("*UDPChecksumOffloadIPv6"), RT_OFFSET(UDPChksumOffv6),           RT_SIZE(UDPChksumOffv6),           RtChecksumOffloadTxRxEnabled,     RtChecksumOffloadDisabled,        RtChecksumOffloadTxRxEnabled },
-    { NDIS_STRING_CONST("*UDPChecksumOffloadIPv4"), RT_OFFSET(UDPChksumOffv4),           RT_SIZE(UDPChksumOffv4),           RtChecksumOffloadTxRxEnabled,     RtChecksumOffloadDisabled,        RtChecksumOffloadTxRxEnabled },
-    { NDIS_STRING_CONST("*TCPChecksumOffloadIPv4"), RT_OFFSET(TCPChksumOffv4),           RT_SIZE(TCPChksumOffv4),           RtChecksumOffloadTxRxEnabled,     RtChecksumOffloadDisabled,        RtChecksumOffloadTxRxEnabled },
-    { NDIS_STRING_CONST("*TCPChecksumOffloadIPv6"), RT_OFFSET(TCPChksumOffv6),           RT_SIZE(TCPChksumOffv6),           RtChecksumOffloadTxRxEnabled,     RtChecksumOffloadDisabled,        RtChecksumOffloadTxRxEnabled },
-    { NDIS_STRING_CONST("*WakeOnMagicPacket"),      RT_OFFSET(WakeOnMagicPacketEnabled), RT_SIZE(WakeOnMagicPacketEnabled), true,                             false,                            true },
-    { NDIS_STRING_CONST("*InterruptModeration"),    RT_OFFSET(InterruptModerationMode),  RT_SIZE(InterruptModerationMode),  RtInterruptModerationLow,         RtInterruptModerationOff,         RtInterruptModerationMedium },
+    // reg value name                                Offset in RT_ADAPTER                 Field size                         Default Value                     Min                               Max
+
+    // Standard Keywords
+    { NDIS_STRING_CONST("*SpeedDuplex"),             RT_OFFSET(SpeedDuplex),              RT_SIZE(SpeedDuplex),              RtSpeedDuplexModeAutoNegotiation, RtSpeedDuplexModeAutoNegotiation, RtSpeedDuplexMode1GFullDuplex },
+    { NDIS_STRING_CONST("*TransmitBuffers"),         RT_OFFSET(TransmitBuffers),          RT_SIZE(TransmitBuffers),          128,                              RT_MIN_TCB,                       RT_MAX_TCB },
+    { NDIS_STRING_CONST("*IPChecksumOffloadIPv4"),   RT_OFFSET(IPChksumOffv4),            RT_SIZE(IPChksumOffv4),            RtChecksumOffloadTxRxEnabled,     RtChecksumOffloadDisabled,        RtChecksumOffloadTxRxEnabled },
+    { NDIS_STRING_CONST("*UDPChecksumOffloadIPv6"),  RT_OFFSET(UDPChksumOffv6),           RT_SIZE(UDPChksumOffv6),           RtChecksumOffloadTxRxEnabled,     RtChecksumOffloadDisabled,        RtChecksumOffloadTxRxEnabled },
+    { NDIS_STRING_CONST("*UDPChecksumOffloadIPv4"),  RT_OFFSET(UDPChksumOffv4),           RT_SIZE(UDPChksumOffv4),           RtChecksumOffloadTxRxEnabled,     RtChecksumOffloadDisabled,        RtChecksumOffloadTxRxEnabled },
+    { NDIS_STRING_CONST("*TCPChecksumOffloadIPv4"),  RT_OFFSET(TCPChksumOffv4),           RT_SIZE(TCPChksumOffv4),           RtChecksumOffloadTxRxEnabled,     RtChecksumOffloadDisabled,        RtChecksumOffloadTxRxEnabled },
+    { NDIS_STRING_CONST("*TCPChecksumOffloadIPv6"),  RT_OFFSET(TCPChksumOffv6),           RT_SIZE(TCPChksumOffv6),           RtChecksumOffloadTxRxEnabled,     RtChecksumOffloadDisabled,        RtChecksumOffloadTxRxEnabled },
+    { NDIS_STRING_CONST("*WakeOnMagicPacket"),       RT_OFFSET(WakeOnMagicPacketEnabled), RT_SIZE(WakeOnMagicPacketEnabled), true,                             false,                            true },
+    { NDIS_STRING_CONST("*InterruptModeration"),     RT_OFFSET(InterruptModerationMode),  RT_SIZE(InterruptModerationMode),  RtInterruptModerationEnabled,     RtInterruptModerationDisabled,    RtInterruptModerationEnabled },
+    { NDIS_STRING_CONST("*FlowControl"),             RT_OFFSET(FlowControl),              RT_SIZE(FlowControl),              RtFlowControlTxRxEnabled,         RtFlowControlDisabled,            RtFlowControlTxRxEnabled },
+
+    // Custom Keywords
+    { NDIS_STRING_CONST("InterruptModerationLevel"), RT_OFFSET(InterruptModerationLevel), RT_SIZE(InterruptModerationLevel), RtInterruptModerationLow,         RtInterruptModerationLow,         RtInterruptModerationMedium },
 };
 
 NTSTATUS
@@ -74,7 +80,7 @@ Return Value:
     // read all the registry values
     for (UINT i = 0; i < ARRAYSIZE(RtSupportedProperties); i++)
     {
-        RT_ADVANCED_PROPERTIES *property = &RtSupportedProperties[i];
+        RT_ADVANCED_PROPERTY *property = &RtSupportedProperties[i];
 
         // Driver should NOT fail the initialization only because it can not
         // read the registry
@@ -143,29 +149,23 @@ Return Value:
 
     // Read NetworkAddress registry value
     // Use it as the current address if any
-    UCHAR networkAddress[ETH_LENGTH_OF_ADDRESS];
-    ULONG addressSize;
-
-    status = NetConfigurationQueryNetworkAddress(
+    status = NetConfigurationQueryLinkLayerAddress(
         configuration,
-        ARRAYSIZE(networkAddress),
-        networkAddress,
-        &addressSize);
+        &adapter->CurrentAddress);
 
     if ((status == STATUS_SUCCESS))
     {
-        if (addressSize != ETH_LENGTH_OF_ADDRESS ||
-            ETH_IS_MULTICAST(networkAddress) ||
-            ETH_IS_BROADCAST(networkAddress))
+        if (adapter->CurrentAddress.Length != ETH_LENGTH_OF_ADDRESS ||
+            ETH_IS_MULTICAST(adapter->CurrentAddress.Address) ||
+            ETH_IS_BROADCAST(adapter->CurrentAddress.Address))
         {
             TraceLoggingWrite(
                 RealtekTraceProvider,
                 "InvalidNetworkAddress",
-                TraceLoggingBinary(networkAddress, addressSize));
+                TraceLoggingBinary(adapter->CurrentAddress.Address, adapter->CurrentAddress.Length));
         }
         else
         {
-            memcpy(adapter->CurrentAddress, networkAddress, ETH_LENGTH_OF_ADDRESS);
             adapter->OverrideAddress = TRUE;
         }
     }

@@ -41,9 +41,10 @@ RtUpdateRecvStats(
     }
 }
 
+static
 void
-RxFillChecksumInfo(
-    _In_    RT_RXQUEUE const *rx,
+RxFillRtl8111DChecksumInfo(
+    _In_    RT_ADAPTER const *adapter,
     _In_    RT_RX_DESC const *rxd,
     _Inout_ NET_PACKET *packet)
 {
@@ -62,7 +63,7 @@ RxFillChecksumInfo(
     {
         packet->Layout.Layer3Type = NET_PACKET_LAYER3_TYPE_IPV4_UNSPECIFIED_OPTIONS;
 
-        if (rx->Adapter->IpRxHwChkSumv4)
+        if (adapter->IpRxHwChkSumv4)
         {
             packet->Checksum.Layer3 =
                 (rxd->RxDescDataIpv6Rss.status & RXS_IPF)
@@ -88,8 +89,8 @@ RxFillChecksumInfo(
     {
         packet->Layout.Layer4Type = NET_PACKET_LAYER4_TYPE_TCP;
 
-        if ((isIpv4 && rx->Adapter->TcpRxHwChkSumv4) ||
-            (isIpv6 && rx->Adapter->TcpRxHwChkSumv6))
+        if ((isIpv4 && adapter->TcpRxHwChkSumv4) ||
+            (isIpv6 && adapter->TcpRxHwChkSumv6))
         {
             packet->Checksum.Layer4 =
                 (rxd->RxDescDataIpv6Rss.IpRssTava & RXS_IPV6RSS_TCPF)
@@ -101,14 +102,105 @@ RxFillChecksumInfo(
     {
         packet->Layout.Layer4Type = NET_PACKET_LAYER4_TYPE_UDP;
 
-        if ((isIpv4 && rx->Adapter->UdpRxHwChkSumv4) ||
-            (isIpv6 && rx->Adapter->UdpRxHwChkSumv6))
+        if ((isIpv4 && adapter->UdpRxHwChkSumv4) ||
+            (isIpv6 && adapter->UdpRxHwChkSumv6))
         {
             packet->Checksum.Layer4 =
                 (rxd->RxDescDataIpv6Rss.IpRssTava & RXS_IPV6RSS_UDPF)
                 ? NET_PACKET_RX_CHECKSUM_INVALID
                 : NET_PACKET_RX_CHECKSUM_VALID;
         }
+    }
+}
+
+static
+void
+RxFillRtl8111EChecksumInfo(
+    _In_    RT_ADAPTER const *adapter,
+    _In_    RT_RX_DESC const *rxd,
+    _Inout_ NET_PACKET *packet)
+{
+    packet->Layout.Layer2Type = NET_PACKET_LAYER2_TYPE_ETHERNET;
+    packet->Checksum.Layer2 =
+        (rxd->RxDescDataIpv6Rss.status & RXS_CRC)
+        ? NET_PACKET_RX_CHECKSUM_INVALID
+        : NET_PACKET_RX_CHECKSUM_VALID;
+
+    USHORT const isIpv4 = rxd->RxDescDataIpv6Rss.IpRssTava & RXS_IPV6RSS_IS_IPV4;
+    USHORT const isIpv6 = rxd->RxDescDataIpv6Rss.IpRssTava & RXS_IPV6RSS_IS_IPV6;
+
+    NT_ASSERT(!(isIpv4 && isIpv6));
+
+    if (isIpv4)
+    {
+        packet->Layout.Layer3Type = NET_PACKET_LAYER3_TYPE_IPV4_UNSPECIFIED_OPTIONS;
+
+        if (adapter->IpRxHwChkSumv4)
+        {
+            packet->Checksum.Layer3 =
+                (rxd->RxDescDataIpv6Rss.status & RXS_IPF)
+                ? NET_PACKET_RX_CHECKSUM_INVALID
+                : NET_PACKET_RX_CHECKSUM_VALID;
+        }
+    }
+    else if (isIpv6)
+    {
+        packet->Layout.Layer3Type = NET_PACKET_LAYER3_TYPE_IPV6_UNSPECIFIED_EXTENSIONS;
+    }
+    else
+    {
+        return;
+    }
+
+    USHORT const isTcp = rxd->RxDescDataIpv6Rss.status & RXS_TCPIP_PACKET;
+    USHORT const isUdp = rxd->RxDescDataIpv6Rss.status & RXS_UDPIP_PACKET;
+
+    NT_ASSERT(!(isTcp && isUdp));
+
+    if (isTcp)
+    {
+        packet->Layout.Layer4Type = NET_PACKET_LAYER4_TYPE_TCP;
+
+        if ((isIpv4 && adapter->TcpRxHwChkSumv4) ||
+            (isIpv6 && adapter->TcpRxHwChkSumv6))
+        {
+            packet->Checksum.Layer4 =
+                (rxd->RxDescDataIpv6Rss.TcpUdpFailure & TXS_TCPCS)
+                ? NET_PACKET_RX_CHECKSUM_INVALID
+                : NET_PACKET_RX_CHECKSUM_VALID;
+        }
+    }
+    else if (isUdp)
+    {
+        packet->Layout.Layer4Type = NET_PACKET_LAYER4_TYPE_UDP;
+
+        if ((isIpv4 && adapter->UdpRxHwChkSumv4) ||
+            (isIpv6 && adapter->UdpRxHwChkSumv6))
+        {
+            packet->Checksum.Layer4 =
+                (rxd->RxDescDataIpv6Rss.TcpUdpFailure & TXS_UDPCS)
+                ? NET_PACKET_RX_CHECKSUM_INVALID
+                : NET_PACKET_RX_CHECKSUM_VALID;
+        }
+    }
+}
+
+static
+void
+RtFillRxChecksumInfo(
+    _In_    RT_ADAPTER const *adapter,
+    _In_    RT_RX_DESC const *rxd,
+    _Inout_ NET_PACKET *packet)
+{
+    switch (adapter->ChipType)
+    {
+    case RTL8168D:
+        RxFillRtl8111DChecksumInfo(adapter, rxd, packet);
+        break;
+    case RTL8168D_REV_C_REV_D:
+    case RTL8168E:
+        RxFillRtl8111EChecksumInfo(adapter, rxd, packet);
+        break;
     }
 }
 
@@ -131,7 +223,10 @@ RxIndicateReceives(
         packet->Data.ValidLength = rxd->RxDescDataIpv6Rss.length - FRAME_CRC_SIZE;
         packet->Data.Offset = 0;
 
-        RxFillChecksumInfo(rx, rxd, packet);
+        packet->Data.LastFragmentOfFrame = true;
+        packet->Data.LastPacketOfChain = true;
+        
+        RtFillRxChecksumInfo(rx->Adapter, rxd, packet);
 
         RtUpdateRecvStats(rx, rxd, packet->Data.ValidLength);
     }
@@ -155,7 +250,7 @@ RxPostBuffers(_In_ RT_RXQUEUE *rx)
         if (!packet)
             break;
 
-        rxd->BufferAddress = packet->Data.DmaLogicalAddress;
+        rxd->BufferAddress = packet->Data.Mapping.DmaLogicalAddress;
         rxd->RxDescDataIpv6Rss.TcpUdpFailure = 0;
         rxd->RxDescDataIpv6Rss.length = packet->Data.Capacity;
         rxd->RxDescDataIpv6Rss.VLAN_TAG.Value = 0;
@@ -183,10 +278,6 @@ RtRxQueueInitialize(_In_ NETRXQUEUE rxQueue, _In_ RT_ADAPTER *adapter)
     rx->Interrupt = adapter->Interrupt;
     rx->RingBuffer = NetRxQueueGetRingBuffer(rxQueue);
 
-    GOTO_IF_NOT_NT_SUCCESS(Exit, status,
-        NetRxQueueConfigureDmaAllocator(rxQueue, rx->Adapter->DmaEnabler));
-
-
     // allocate descriptors
     {
         WdfDeviceSetAlignmentRequirement(adapter->WdfDevice, FILE_256_BYTE_ALIGNMENT);
@@ -208,18 +299,18 @@ Exit:
 }
 
 ULONG
-RtConvertPacketFilterToRcr(ULONG PacketFilter)
+RtConvertPacketFilterToRcr(NET_PACKET_FILTER_TYPES_FLAGS packetFilter)
 {
-    if (PacketFilter & NDIS_PACKET_TYPE_PROMISCUOUS)
+    if (packetFilter & NET_PACKET_FILTER_TYPE_PROMISCUOUS)
     {
         return (RCR_AAP | RCR_APM | RCR_AM | RCR_AB | RCR_AR | RCR_AER);
     }
 
     return
-        ((PacketFilter & NDIS_PACKET_TYPE_ALL_MULTICAST) ? RCR_AM  : 0) |
-        ((PacketFilter & NDIS_PACKET_TYPE_MULTICAST)     ? RCR_AM  : 0) |
-        ((PacketFilter & NDIS_PACKET_TYPE_BROADCAST)     ? RCR_AB  : 0) |
-        ((PacketFilter & NDIS_PACKET_TYPE_DIRECTED)      ? RCR_APM : 0);
+        ((packetFilter & NET_PACKET_FILTER_TYPE_ALL_MULTICAST) ? RCR_AM  : 0) |
+        ((packetFilter & NET_PACKET_FILTER_TYPE_MULTICAST)     ? RCR_AM  : 0) |
+        ((packetFilter & NET_PACKET_FILTER_TYPE_BROADCAST)     ? RCR_AB  : 0) |
+        ((packetFilter & NET_PACKET_FILTER_TYPE_DIRECTED)      ? RCR_APM : 0);
 }
 
 _Use_decl_annotations_
@@ -239,7 +330,7 @@ RtRxQueueStart(_In_ RT_RXQUEUE *rx)
 
     adapter->CSRAddress->RMS = RT_MAX_FRAME_SIZE;
 
-    USHORT cpcr = adapter->CSRAddress->CPCR | CPCR_RX_VLAN;
+    USHORT cpcr = adapter->CSRAddress->CPCR;
 
     if (adapter->IpRxHwChkSumv4 || adapter->TcpRxHwChkSumv4 || adapter->UdpRxHwChkSumv4)
     {
@@ -302,7 +393,7 @@ EvtRxQueueDestroy(_In_ WDFOBJECT rxQueue)
 }
 
 _Use_decl_annotations_
-NTSTATUS
+VOID
 EvtRxQueueSetNotificationEnabled(
     _In_ NETRXQUEUE rxQueue,
     _In_ BOOLEAN notificationEnabled)
@@ -314,7 +405,6 @@ EvtRxQueueSetNotificationEnabled(
     RtRxQueueSetInterrupt(rx, notificationEnabled);
 
     TraceExit();
-    return STATUS_SUCCESS;
 }
 
 _Use_decl_annotations_

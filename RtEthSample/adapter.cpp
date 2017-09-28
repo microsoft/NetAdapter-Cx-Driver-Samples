@@ -17,6 +17,15 @@
 #include "oid.h"
 #include "txqueue.h"
 #include "rxqueue.h"
+#include "eeprom.h"
+
+#define ETH_IS_ZERO(Address) ( \
+    (((PUCHAR)(Address))[0] == ((UCHAR)0x00)) && \
+    (((PUCHAR)(Address))[1] == ((UCHAR)0x00)) && \
+    (((PUCHAR)(Address))[2] == ((UCHAR)0x00)) && \
+    (((PUCHAR)(Address))[3] == ((UCHAR)0x00)) && \
+    (((PUCHAR)(Address))[4] == ((UCHAR)0x00)) && \
+    (((PUCHAR)(Address))[5] == ((UCHAR)0x00)))
 
 NTSTATUS 
 RtInitializeAdapterContext(
@@ -161,7 +170,8 @@ RtAdapterQueryOffloadConfiguration(
     }
 }
 
-_Use_decl_annotations_
+// Lock not required in D0Entry
+_Requires_lock_held_(adapter->Lock)
 void
 RtAdapterUpdateEnabledChecksumOffloads(_In_ RT_ADAPTER *adapter)
 {
@@ -185,25 +195,21 @@ RtAdapterUpdateEnabledChecksumOffloads(_In_ RT_ADAPTER *adapter)
         (adapter->UDPChksumOffv6 == RtChecksumOffloadRxEnabled ||
             adapter->UDPChksumOffv6 == RtChecksumOffloadTxRxEnabled);
 
-    WdfSpinLockAcquire(adapter->Lock); {
-
-        USHORT cpcr = adapter->CSRAddress->CPCR;
+    USHORT cpcr = adapter->CSRAddress->CPCR;
     
-        // if one kind of offload needed, enable RX HW checksum
-        if (adapter->IpRxHwChkSumv4 || adapter->TcpRxHwChkSumv4 ||
-            adapter->UdpRxHwChkSumv4 || adapter->TcpRxHwChkSumv6 ||
-            adapter->UdpRxHwChkSumv6)
-        {
-            cpcr |= CPCR_RX_CHECKSUM;
-        }
-        else
-        {
-            cpcr &= ~CPCR_RX_CHECKSUM;
-        }
+    // if one kind of offload needed, enable RX HW checksum
+    if (adapter->IpRxHwChkSumv4 || adapter->TcpRxHwChkSumv4 ||
+        adapter->UdpRxHwChkSumv4 || adapter->TcpRxHwChkSumv6 ||
+        adapter->UdpRxHwChkSumv6)
+    {
+        cpcr |= CPCR_RX_CHECKSUM;
+    }
+    else
+    {
+        cpcr &= ~CPCR_RX_CHECKSUM;
+    }
 
-        adapter->CSRAddress->CPCR = cpcr;
-
-    } WdfSpinLockRelease(adapter->Lock);
+    adapter->CSRAddress->CPCR = cpcr;
 }
 
 void
@@ -268,12 +274,12 @@ EvtAdapterSetCapabilities(
         RT_MAX_MCAST_LIST,
         NIC_SUPPORTED_STATISTICS,
         maxXmitLinkSpeed,
-        maxRcvLinkSpeed,
-        ETH_LENGTH_OF_ADDRESS,
-        adapter->PermanentAddress,
-        adapter->CurrentAddress);
+        maxRcvLinkSpeed);
 
     NetAdapterSetLinkLayerCapabilities(netAdapter, &linkLayerCapabilities);
+
+    NetAdapterSetPermanentLinkLayerAddress(netAdapter, &adapter->PermanentAddress);
+    NetAdapterSetCurrentLinkLayerAddress(netAdapter, &adapter->CurrentAddress);
 
 #pragma endregion
 
@@ -288,10 +294,7 @@ EvtAdapterSetCapabilities(
     NET_ADAPTER_POWER_CAPABILITIES powerCapabilities;
     NET_ADAPTER_POWER_CAPABILITIES_INIT(&powerCapabilities);
 
-    if (adapter->WakeOnMagicPacketEnabled)
-    {
-        powerCapabilities.SupportedWakePatterns = NET_ADAPTER_WAKE_MAGIC_PACKET;
-    }
+    powerCapabilities.SupportedWakePatterns = NET_ADAPTER_WAKE_MAGIC_PACKET;
 
     NetAdapterSetPowerCapabilities(netAdapter, &powerCapabilities);
 
@@ -373,7 +376,11 @@ EvtAdapterCreateTxQueue(
     sgConfig.MaximumScatterGatherElements = RT_MAX_PHYS_BUF_COUNT;
     sgConfig.AllowDmaBypass = TRUE;
 
-    NET_TX_DMA_QUEUE_CONFIG_SET_DEFAULT_PACKET_CONTEXT_TYPE(&sgConfig, RT_TCB);
+    NET_PACKET_CONTEXT_ATTRIBUTES contextAttributes;
+    NET_PACKET_CONTEXT_ATTRIBUTES_INIT_TYPE(&contextAttributes, RT_TCB);
+
+    GOTO_IF_NOT_NT_SUCCESS(Exit, status,
+        NetTxQueueInitAddPacketContextAttributes(txQueueInit, &contextAttributes));
 
     NETTXQUEUE txQueue;
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
@@ -436,6 +443,15 @@ EvtAdapterCreateRxQueue(
     rxConfig.AllocationSize =
         RT_MAX_PACKET_SIZE + FRAME_CRC_SIZE + RSVD_BUF_SIZE;
 
+    NET_RXQUEUE_DMA_ALLOCATOR_CONFIG dmaAllocatorConfig;
+    NET_RXQUEUE_DMA_ALLOCATOR_CONFIG_INIT(&dmaAllocatorConfig, adapter->DmaEnabler);
+
+    // TODO: Remove this once we add device cache coherence 
+    // detection to the cx
+    dmaAllocatorConfig.CacheEnabled = WdfTrue;
+
+    NetRxQueueInitSetDmaAllocatorConfig(rxQueueInit, &dmaAllocatorConfig);
+
     NETRXQUEUE rxQueue;
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
         NetRxQueueCreate(rxQueueInit, &rxAttributes, &rxConfig, &rxQueue));
@@ -488,13 +504,29 @@ Return Value:
 
     NTSTATUS status = STATUS_SUCCESS;
 
-    for (UINT i = 0; i < ETHERNET_ADDRESS_LENGTH; i++)
+    if (adapter->EEPROMSupported)
     {
-        adapter->PermanentAddress[i] = adapter->CSRAddress->ID[i];
+        RtAdapterReadEEPROMPermanentAddress(adapter);
+    }
+    else
+    {
+        for (ULONG i = 0; i < ETH_LENGTH_OF_ADDRESS; i += 2)
+        {
+            *((PUSHORT)(&adapter->PermanentAddress.Address[i])) =
+                *(USHORT*)&adapter->CSRAddress->ID[i];
+        }
+
+        adapter->PermanentAddress.Length = ETHERNET_ADDRESS_LENGTH;
     }
 
-    if (ETH_IS_MULTICAST(adapter->PermanentAddress) ||
-            ETH_IS_BROADCAST(adapter->PermanentAddress))
+    TraceLoggingWrite(
+        RealtekTraceProvider,
+        "PermanentAddressRead",
+        TraceLoggingBinary(&adapter->PermanentAddress.Address, adapter->PermanentAddress.Length, "PermanentAddress"));
+
+    if (ETH_IS_MULTICAST(adapter->PermanentAddress.Address) ||
+            ETH_IS_BROADCAST(adapter->PermanentAddress.Address) ||
+            ETH_IS_ZERO(adapter->PermanentAddress.Address))
     {
         NdisWriteErrorLogEntry(
             adapter->NdisLegacyAdapterHandle,
@@ -506,16 +538,11 @@ Return Value:
 
     if (!adapter->OverrideAddress)
     {
-        memcpy(
-            adapter->CurrentAddress,
-            adapter->PermanentAddress,
+        RtlCopyMemory(
+            &adapter->CurrentAddress,
+            &adapter->PermanentAddress,
             sizeof(adapter->PermanentAddress));
     }
-
-    TraceLoggingWrite(
-        RealtekTraceProvider,
-        "PermanentAddressRead",
-        TraceLoggingBinary(adapter->CurrentAddress, 6, "CurrentAddress"));
 
 Exit:
     TraceExitResult(status);
@@ -568,7 +595,7 @@ RtAdapterSetupCurrentAddress(
 
         for (UINT i = 0; i < ETHERNET_ADDRESS_LENGTH; i++)
         {
-            adapter->CSRAddress->ID[i] = adapter->CurrentAddress[i];
+            adapter->CSRAddress->ID[i] = adapter->CurrentAddress.Address[i];
         }
 
     } RtAdapterDisableCR9346Write(adapter);
@@ -627,87 +654,103 @@ Routine Description:
 void
 RtAdapterSetMulticastReg(
     _In_ RT_ADAPTER *adapter,
-         ULONG multiCast_03,
-         ULONG multiCast_47)
+    _In_reads_bytes_(MAX_NIC_MULTICAST_REG) UCHAR const *multicastRegs)
 {
-    PULONG pMultiCastReg;
+    // The control block stores the multicast registers in descending order.
+    // Write to them using DWORD writes.
 
-    pMultiCastReg = (PULONG)(&adapter->CSRAddress->MulticastReg0);
+    {
+        UCHAR mar7_4[4];
 
-    *pMultiCastReg = multiCast_03;
-    pMultiCastReg = (PULONG)(&adapter->CSRAddress->MulticastReg4);
+        mar7_4[0] = multicastRegs[7];
+        mar7_4[1] = multicastRegs[6];
+        mar7_4[2] = multicastRegs[5];
+        mar7_4[3] = multicastRegs[4];
 
-    *pMultiCastReg = multiCast_47;
+        *reinterpret_cast<DWORD volatile *>(&adapter->CSRAddress->MulticastReg7) =
+            *reinterpret_cast<DWORD*>(&mar7_4[0]);
+    }
+
+    {
+        UCHAR mar3_0[4];
+
+        mar3_0[0] = multicastRegs[3];
+        mar3_0[1] = multicastRegs[2];
+        mar3_0[2] = multicastRegs[1];
+        mar3_0[3] = multicastRegs[0];
+
+        *reinterpret_cast<DWORD volatile *>(&adapter->CSRAddress->MulticastReg3) =
+            *reinterpret_cast<DWORD*>(&mar3_0[0]);
+    }
 }
 
 void RtAdapterPushMulticastList(_In_ RT_ADAPTER *adapter)
 {
-    UCHAR Byte;
-    UCHAR  Bit;
-    ULONG MultiCast_03;
-    ULONG MultiCast_47;
-    ULONG  AddressCount = adapter->MCAddressCount;
-    ULONG  MultiCastR1;
-    ULONG  MultiCastR2;
+    UCHAR multicastRegs[MAX_NIC_MULTICAST_REG] = { 0 };
 
-    UCHAR  NicMulticastRegs[MAX_NIC_MULTICAST_REG] = { 0 };
-
-    // Now turn on the bit for each address in the multicast list.
-    for (UINT i = 0; (i < AddressCount) && (i < RT_MAX_MCAST_LIST); i++)
+    if (adapter->PacketFilter &
+        (NET_PACKET_FILTER_TYPE_PROMISCUOUS |
+            NET_PACKET_FILTER_TYPE_ALL_MULTICAST))
     {
-        GetMulticastBit(adapter->MCList[i], &Byte, &Bit);
-        NicMulticastRegs[Byte] |= Bit;
+        RtlFillMemory(multicastRegs, MAX_NIC_MULTICAST_REG, 0xFF);
+    }
+    else
+    {
+        // Now turn on the bit for each address in the multicast list.
+        for (UINT i = 0; i < adapter->MCAddressCount; i++)
+        {
+            UCHAR byte, bit;
+            GetMulticastBit(adapter->MCList[i], &byte, &bit);
+            multicastRegs[byte] |= bit;
+        }
     }
 
-    //Write Multicast bits to register
-    MultiCast_03 = 0;
-
-    MultiCast_47 = 0;
-
-    for (UINT i = 0; i < 4; i++)
-    {
-        MultiCast_03 = MultiCast_03 + (NicMulticastRegs[i] << (8 * i));
-    }
-
-    for (UINT i = 4; i < 8; i++)
-    {
-        MultiCast_47 = MultiCast_47 + (NicMulticastRegs[i] << (8 * (i - 4)));
-    }
-
-    MultiCastR1 = 0;
-    MultiCastR2 = 0;
-
-    MultiCastR1 |= (MultiCast_47 & 0x000000ff) << 24;
-    MultiCastR1 |= (MultiCast_47 & 0x0000ff00) << 8;
-    MultiCastR1 |= (MultiCast_47 & 0x00ff0000) >> 8;
-    MultiCastR1 |= (MultiCast_47 & 0xff000000) >> 24;
-
-    MultiCastR2 |= (MultiCast_03 & 0x000000ff) << 24;
-    MultiCastR2 |= (MultiCast_03 & 0x0000ff00) << 8;
-    MultiCastR2 |= (MultiCast_03 & 0x00ff0000) >> 8;
-    MultiCastR2 |= (MultiCast_03 & 0xff000000) >> 24;
-
-    MultiCast_03 = MultiCastR1;
-    MultiCast_47 = MultiCastR2;
-
-    RtAdapterSetMulticastReg(adapter, MultiCast_03, MultiCast_47);
+    RtAdapterSetMulticastReg(adapter, multicastRegs);
 }
 
 bool
 RtAdapterQueryChipType(_In_ RT_ADAPTER *adapter, _Out_ RT_CHIP_TYPE *chipType)
 {
-    ULONG MacVer = adapter->CSRAddress->TCR;
-    MacVer &= 0x7C800000;
+    ULONG const tcr = adapter->CSRAddress->TCR;
+    ULONG const rcr = adapter->CSRAddress->RCR;
+
+    ULONG const macVer = tcr & 0x7C800000;
+    ULONG const revId = tcr & (BIT_20 | BIT_21 | BIT_22);
+
+    ULONG const eepromSelect = rcr & RCR_9356SEL;
+
+    TraceLoggingWrite(
+        RealtekTraceProvider,
+        "ChipInfo",
+        TraceLoggingUInt32(macVer),
+        TraceLoggingUInt32(revId),
+        TraceLoggingUInt32(eepromSelect));
 
     *chipType = RTLUNKNOWN;
 
-    if (MacVer == 0x28000000)
+    switch (macVer)
     {
-        *chipType = RTL8168D;
+    case 0x28000000:
+        switch (revId)
+        {
+        case 0x300000:
+            *chipType = RTL8168D_REV_C_REV_D;
+            break;
+        case 0x000000:
+            *chipType = RTL8168D;
+            break;
+        default:
+            *chipType = RTL8168D_REV_C_REV_D;
+            break;
+        }
+        // RTL8168D && EEPROM 93C46
+        return eepromSelect == 0;
+    case 0x2c000000:
+        *chipType = RTL8168E;
         return true;
+    default:
+        return false;
     }
-
-    return false;
 }
 
 void
@@ -749,7 +792,7 @@ RtAdapterUpdateInterruptModeration(_In_ RT_ADAPTER *adapter)
         USHORT timerFlags = 0;
 
         if (adapter->InterruptModerationDisabled ||
-            adapter->InterruptModerationMode == RtInterruptModerationOff)
+            adapter->InterruptModerationMode == RtInterruptModerationDisabled)
         {
             // No interrupt moderation
             adapter->CSRAddress->IntMiti.RxTimerNum = 0;
@@ -757,7 +800,7 @@ RtAdapterUpdateInterruptModeration(_In_ RT_ADAPTER *adapter)
         }
         else
         {
-            switch (adapter->InterruptModerationMode)
+            switch (adapter->InterruptModerationLevel)
             {
             case RtInterruptModerationLow:
                 timerFlags |= CPCR_INT_MITI_TIMER_UNIT_0;

@@ -19,6 +19,7 @@
 #include "interrupt.h"
 #include "link.h"
 #include "phy.h"
+#include "eeprom.h"
 
 NTSTATUS
 RtGetResources(
@@ -168,7 +169,40 @@ RtInitializeHardware(
         GOTO_IF_NOT_NT_SUCCESS(Exit, status, STATUS_NOT_FOUND);
     }
 
+    TraceLoggingWrite(
+        RealtekTraceProvider,
+        "ChipType",
+        TraceLoggingUInt32(adapter->ChipType));
+
+    UINT16 eepromId, pciId;
+    if (!RtAdapterReadEepromId(adapter, &eepromId, &pciId))
+    {
+        adapter->EEPROMSupported = false;
+    }
+    else
+    {
+        TraceLoggingWrite(
+            RealtekTraceProvider,
+            "EepromId",
+            TraceLoggingLevel(TRACE_LEVEL_INFORMATION),
+            TraceLoggingUInt32(eepromId),
+            TraceLoggingUInt32(pciId));
+
+        adapter->EEPROMSupported = (eepromId == 0x8129 && pciId == 0x10ec);
+    }
+    
+    if (!adapter->EEPROMSupported)
+    {
+        TraceLoggingWrite(
+            RealtekTraceProvider,
+            "UnsupportedEEPROM",
+            TraceLoggingLevel(TRACE_LEVEL_WARNING));
+    }
+
     RtAdapterSetupHardware(adapter);
+
+    // Push SpeedDuplex PHY settings
+    RtAdapterPushPhySettings(adapter);
 
     RtAdapterIssueFullReset(adapter);
 

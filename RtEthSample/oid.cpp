@@ -19,45 +19,6 @@
 #include "rxqueue.h"
 #include "link.h"
 
-const NDIS_OID NICSupportedOids[] =
-{
-    //query
-    OID_GEN_SUPPORTED_LIST,
-    OID_GEN_HARDWARE_STATUS,
-    OID_GEN_MEDIA_SUPPORTED,
-    OID_GEN_MEDIA_IN_USE,
-    OID_GEN_MAXIMUM_FRAME_SIZE,
-    OID_GEN_TRANSMIT_BUFFER_SPACE,
-    OID_GEN_RECEIVE_BUFFER_SPACE,
-    OID_GEN_TRANSMIT_BLOCK_SIZE,
-    OID_GEN_RECEIVE_BLOCK_SIZE,
-    OID_GEN_VENDOR_ID,
-    OID_GEN_VENDOR_DESCRIPTION,
-    OID_GEN_VENDOR_DRIVER_VERSION,
-    OID_GEN_MAXIMUM_TOTAL_SIZE,
-    OID_GEN_MAC_OPTIONS,
-    OID_GEN_PHYSICAL_MEDIUM_EX,
-
-    // stats
-    OID_GEN_STATISTICS,
-    OID_GEN_XMIT_OK,
-    OID_GEN_RCV_OK,
-    OID_802_3_MAXIMUM_LIST_SIZE,
-    OID_802_3_XMIT_ONE_COLLISION,
-    OID_802_3_XMIT_MORE_COLLISIONS,
-    OID_802_3_XMIT_MAX_COLLISIONS,
-    OID_802_3_XMIT_UNDERRUN,
-
-    // query + set
-    OID_GEN_CURRENT_LOOKAHEAD,
-    OID_OFFLOAD_ENCAPSULATION,
-
-    // set
-    OID_GEN_CURRENT_PACKET_FILTER,
-    OID_802_3_MULTICAST_LIST,
-    OID_TCP_OFFLOAD_PARAMETERS,
-};
-
 _Requires_lock_held_(adapter->Lock)
 void
 RtAdapterSetOffloadParameters(
@@ -148,27 +109,6 @@ RtAdapterSetOffloadParameters(
 
     RtAdapterUpdateEnabledChecksumOffloads(adapter);
     RtAdapterQueryOffloadConfiguration(adapter, offloadConfiguration);
-}
-
-void
-EvtNetRequestQuerySupportedOids(
-    _In_ NETREQUESTQUEUE RequestQueue,
-    _In_ NETREQUEST Request,
-    _Out_writes_bytes_(OutputBufferLength)
-    PVOID OutputBuffer,
-    UINT OutputBufferLength)
-{
-    __analysis_assume(OutputBufferLength >= sizeof(NICSupportedOids));
-
-    UNREFERENCED_PARAMETER((RequestQueue, OutputBufferLength));
-
-    TraceEntry();
-
-    RtlCopyMemory(OutputBuffer, NICSupportedOids, sizeof(NICSupportedOids));
-
-    NetRequestQueryDataComplete(Request, STATUS_SUCCESS, sizeof(NICSupportedOids));
-
-    TraceExit();
 }
 
 #define RTK_NIC_GBE_PCIE_ADAPTER_NAME "Realtek PCIe GBE Family Controller"
@@ -265,7 +205,7 @@ EvtNetRequestQueryUlong(
         break;
 
     case OID_GEN_VENDOR_ID:
-        result = *(PULONG)adapter->PermanentAddress;
+        result = *(PULONG)(adapter->PermanentAddress.Address);
         break;
 
     case OID_GEN_MEDIA_SUPPORTED:
@@ -376,10 +316,12 @@ EvtNetRequestSetMulticastList(
         //
         // Save the MC list
         //
-        memcpy(
+        RtlCopyMemory(
             adapter->MCList,
             InputBuffer,
             mcAddressCount * ETH_LENGTH_OF_ADDRESS);
+
+        RtAdapterPushMulticastList(adapter);
 
     } WdfSpinLockRelease(adapter->Lock);
 
@@ -407,9 +349,10 @@ EvtNetRequestSetPacketFilter(
 
     TraceEntryRtAdapter(adapter, TraceLoggingUInt32(oid));
 
-    ULONG PacketFilter = *(PULONG UNALIGNED)InputBuffer;
+    NET_PACKET_FILTER_TYPES_FLAGS packetFilter =
+        *(NET_PACKET_FILTER_TYPES_FLAGS UNALIGNED*)InputBuffer;
 
-    if (PacketFilter & ~RT_SUPPORTED_FILTERS)
+    if (packetFilter & ~RT_SUPPORTED_FILTERS)
     {
         NetRequestCompleteWithoutInformation(Request, STATUS_NOT_SUPPORTED);
         goto Exit;
@@ -417,8 +360,11 @@ EvtNetRequestSetPacketFilter(
 
     WdfSpinLockAcquire(adapter->Lock); {
 
-        adapter->PacketFilter = PacketFilter;
+        adapter->PacketFilter = packetFilter;
         RtAdapterUpdateRcr(adapter);
+
+        // Changing the packet filter might require clearing the active MCList
+        RtAdapterPushMulticastList(adapter);
 
     } WdfSpinLockRelease(adapter->Lock);
 
@@ -561,7 +507,7 @@ EvtNetRequestQueryInterruptModeration(
     imParameters->Header.Revision = NDIS_INTERRUPT_MODERATION_PARAMETERS_REVISION_1;
     imParameters->Header.Size = NDIS_SIZEOF_INTERRUPT_MODERATION_PARAMETERS_REVISION_1;
 
-    if (adapter->InterruptModerationMode == RtInterruptModerationOff)
+    if (adapter->InterruptModerationMode == RtInterruptModerationDisabled)
     {
         imParameters->InterruptModeration = NdisInterruptModerationNotSupported;
     }
@@ -595,7 +541,7 @@ EvtNetRequestSetInterruptModeration(
 
     TraceEntryRtAdapter(adapter);
 
-    if (adapter->InterruptModerationMode == RtInterruptModerationOff)
+    if (adapter->InterruptModerationMode == RtInterruptModerationDisabled)
     {
         NetRequestSetDataComplete(Request, NDIS_STATUS_INVALID_DATA, NDIS_SIZEOF_INTERRUPT_MODERATION_PARAMETERS_REVISION_1);
     }
@@ -620,7 +566,6 @@ EvtNetRequestSetInterruptModeration(
     TraceExit();
 }
 
-
 typedef struct _RT_OID_QUERY {
     NDIS_OID Oid;
     PFN_NET_REQUEST_QUERY_DATA EvtQueryData;
@@ -628,12 +573,11 @@ typedef struct _RT_OID_QUERY {
 } RT_OID_QUERY, *PRT_OID_QUERY;
 
 const RT_OID_QUERY ComplexQueries[] = {
-    { OID_GEN_SUPPORTED_LIST,       EvtNetRequestQuerySupportedOids,        sizeof(NICSupportedOids) },
     { OID_GEN_STATISTICS,           EvtNetRequestQueryAllStatistics,        sizeof(NDIS_STATISTICS_INFO) },
     { OID_GEN_VENDOR_DESCRIPTION,   EvtNetRequestQueryVendorDescription,    sizeof(RTK_NIC_GBE_PCIE_ADAPTER_NAME) },
     { OID_OFFLOAD_ENCAPSULATION,    EvtNetRequestQueryOffloadEncapsulation, sizeof(NDIS_OFFLOAD_ENCAPSULATION) },
     { OID_PNP_QUERY_POWER,          EvtNetRequestQuerySuccess,              0 },
-    { OID_GEN_INTERRUPT_MODERATION, EvtNetRequestQueryInterruptModeration, NDIS_SIZEOF_INTERRUPT_MODERATION_PARAMETERS_REVISION_1 },
+    { OID_GEN_INTERRUPT_MODERATION, EvtNetRequestQueryInterruptModeration,  NDIS_SIZEOF_INTERRUPT_MODERATION_PARAMETERS_REVISION_1 },
 };
 
 typedef struct _RT_OID_SET {

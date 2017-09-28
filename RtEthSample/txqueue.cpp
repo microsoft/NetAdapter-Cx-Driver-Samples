@@ -170,7 +170,7 @@ EvtSgProgramDescriptors(
 
             // Store the hardware descriptor of the last
             // scatter/gather element
-            RT_TCB *tcb = GetTcbFromPacket(packet);
+            RT_TCB *tcb = GetTcbFromPacketFromToken(packet, tx->TcbToken);
             tcb->LastTxDesc = &tx->TxdBase[tx->TxDescGetptr];
         }
 
@@ -201,8 +201,8 @@ EvtSgGetPacketStatus(
     _In_ NETTXQUEUE txQueue,
     _In_ NET_PACKET *packet)
 {
-    UNREFERENCED_PARAMETER(txQueue);
-    RT_TX_DESC *txd = GetTcbFromPacket(packet)->LastTxDesc;
+    RT_TXQUEUE *tx = RtGetTxQueueContext(txQueue);
+    RT_TX_DESC *txd = GetTcbFromPacketFromToken(packet, tx->TcbToken)->LastTxDesc;
 
     // Look at the status flags on the last fragment in the packet.
     // If the hardware-ownership flag is still set, then the packet isn't done.
@@ -219,6 +219,8 @@ RtTxQueueInitialize(_In_ NETTXQUEUE txQueue, _In_ RT_ADAPTER * adapter)
     RT_TXQUEUE *tx = RtGetTxQueueContext(txQueue);
 
     tx->Adapter = adapter;
+
+    tx->TcbToken = NET_TXQUEUE_GET_PACKET_CONTEXT_TOKEN(txQueue, RT_TCB);
 
     tx->TPPoll = &adapter->CSRAddress->TPPoll;
     tx->Interrupt = adapter->Interrupt;
@@ -304,7 +306,7 @@ EvtTxQueueDestroy(_In_ WDFOBJECT txQueue)
 }
 
 _Use_decl_annotations_
-NTSTATUS
+VOID
 EvtTxQueueSetNotificationEnabled(
     _In_ NETTXQUEUE txQueue,
     _In_ BOOLEAN notificationEnabled)
@@ -316,7 +318,6 @@ EvtTxQueueSetNotificationEnabled(
     RtTxQueueSetInterrupt(tx, notificationEnabled);
 
     TraceExit();
-    return STATUS_SUCCESS;
 }
 
 _Use_decl_annotations_
