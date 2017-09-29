@@ -32,6 +32,8 @@ typedef struct _RT_TXQUEUE
     RT_ADAPTER *Adapter;
     RT_INTERRUPT *Interrupt;
 
+    NET_PACKET_CONTEXT_TOKEN *TcbToken;
+
     // descriptor information
     WDFCOMMONBUFFER TxdArray;
     RT_TX_DESC *TxdBase;
@@ -59,7 +61,7 @@ NET_PACKET_DECLARE_CONTEXT_TYPE_WITH_NAME(RT_TCB, GetTcbFromPacket);
 
 NTSTATUS RtTxQueueInitialize(_In_ NETTXQUEUE txQueue, _In_ RT_ADAPTER *adapter);
 
-_Requires_lock_held_(tx->adapter->Lock)
+_Requires_lock_held_(tx->Adapter->Lock)
 void RtTxQueueStart(_In_ RT_TXQUEUE *tx);
 
 EVT_WDF_OBJECT_CONTEXT_DESTROY EvtTxQueueDestroy;

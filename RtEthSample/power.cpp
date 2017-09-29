@@ -149,7 +149,7 @@ EvtDeviceArmWakeFromSx(
 
     // Use NETPOWERSETTINGS to check if we should enable wake from magic packet
     NETPOWERSETTINGS powerSettings = NetAdapterGetPowerSettings(adapter->NetAdapter);
-    ULONG enabledWakePatterns = NetPowerSettingsGetEnabledWakePatterns(powerSettings);
+    ULONG enabledWakePatterns = NetPowerSettingsGetEnabledWakePatternFlags(powerSettings);
 
     if (enabledWakePatterns & NET_ADAPTER_WAKE_MAGIC_PACKET)
     {

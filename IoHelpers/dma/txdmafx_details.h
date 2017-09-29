@@ -192,7 +192,7 @@ Description:
     for (UINT32 i = 0; i < ringBuffer->NumberOfElements; i++)
     {
         NET_PACKET *packet = NetRingBufferGetPacketAtIndex(ringBuffer, i);
-        TX_DMA_FX_PACKET_CONTEXT *fxPacketContext = _TxDmaFxGetPacketContext(packet, DmaFx);
+        TX_DMA_FX_PACKET_CONTEXT *fxPacketContext = _TxDmaFxGetPacketContextFromToken(packet, DmaFx->ContextToken);
 
         fxPacketContext->ScatterGatherBuffer = (PUCHAR)DmaFx->SgListMem + i * DmaFx->ScatterGatherListSize;
         fxPacketContext->DmaTransferContext = (UCHAR*)dmaArray + i * DMA_TRANSFER_CONTEXT_SIZE_V1;
@@ -441,19 +441,14 @@ Description:
     }
 
     DMA_ADAPTER *dmaAdapter = DmaFx->DmaAdapter;
-    TX_DMA_FX_PACKET_CONTEXT *fxPacketContext = _TxDmaFxGetPacketContext(NetPacket, DmaFx);
+    TX_DMA_FX_PACKET_CONTEXT *fxPacketContext = _TxDmaFxGetPacketContextFromToken(NetPacket, DmaFx->ContextToken);
 
     _TX_DMA_FX_RETURN_IF_NTSTATUS_FAILED(
         dmaAdapter->DmaOperations->InitializeDmaTransferContext(
             dmaAdapter,
             fxPacketContext->DmaTransferContext));
 
-    // We know for sure there is a MDL pointer in the fragment,
-    // so disable the loss of data warning
-    #pragma warning (push)
-    #pragma warning (disable : 4305)
-    MDL *firstMdl = (MDL*)NetPacket->Data.DmaLogicalAddress.QuadPart;
-    #pragma warning (pop)
+    MDL *firstMdl = NetPacket->Data.Mapping.Mdl;
 
     NTSTATUS buildSGLStatus = dmaAdapter->DmaOperations->BuildScatterGatherListEx(
         dmaAdapter,
@@ -607,12 +602,7 @@ _TxDmaFxBounceAnalysis(
         if (fragment->Offset > 0 && fragment != &NetPacket->Data)
             bounce = TRUE;
         
-        // We know for sure there is a MDL pointer in the fragment,
-        // so disable the loss of data warning
-        #pragma warning (push)
-        #pragma warning (disable : 4305)
-        MDL *mdl = (MDL*)fragment->DmaLogicalAddress.QuadPart;
-        #pragma warning (pop)
+        MDL *mdl = (MDL*)fragment->Mapping.Mdl;
 
         // If a fragment other than the last one does not completly fill
         // the memory described by the MDL, the DMA APIs won't be able to

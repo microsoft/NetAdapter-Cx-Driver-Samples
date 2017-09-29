@@ -69,45 +69,56 @@ RtAdapterPushPhySettings(_In_ RT_ADAPTER *adapter)
 {
     RtAdapterWritePhyUint16(adapter, 0x1f, 0x0000);
 
-    USHORT PhyRegDataGBCR = RtAdapterReadPhyUint16(adapter, PHY_REG_GBCR);
+    USHORT gbcr = RtAdapterReadPhyUint16(adapter, PHY_REG_GBCR);
     // clear 1000 capability
-    PhyRegDataGBCR &= ~(GBCR_1000_FULL | GBCR_1000_HALF);
+    gbcr &= ~(GBCR_1000_FULL | GBCR_1000_HALF);
 
-    //
     // Find out what kind of technology this Phy is capable of.
-    //
-    USHORT PhyRegDataANAR = RtAdapterReadPhyUint16(adapter, PHY_REG_ANAR);
+    USHORT anar = RtAdapterReadPhyUint16(adapter, PHY_REG_ANAR);
 
-    PhyRegDataANAR &= ~(ANAR_10_HALF | ANAR_10_FULL | ANAR_100_HALF | ANAR_100_FULL | ANAR_MAC_PAUSE | ANAR_ASYM_PAUSE);
+    anar &= ~(ANAR_10_HALF | ANAR_10_FULL | ANAR_100_HALF | ANAR_100_FULL | ANAR_MAC_PAUSE | ANAR_ASYM_PAUSE);
 
     switch (adapter->SpeedDuplex)
     {
     case RtSpeedDuplexMode10MHalfDuplex:
-        PhyRegDataANAR |= ANAR_10_HALF;
+        anar |= ANAR_10_HALF;
         break;
     case RtSpeedDuplexMode10MFullDuplex:
-        PhyRegDataANAR |= (ANAR_10_FULL | ANAR_10_HALF);
+        anar |= ANAR_10_FULL;
         break;
     case RtSpeedDuplexMode100MHalfDuplex:
-        PhyRegDataANAR |= (ANAR_100_HALF | ANAR_10_FULL | ANAR_10_HALF);
+        anar |= ANAR_100_HALF;
         break;
     case RtSpeedDuplexMode100MFullDuplex:
-        PhyRegDataANAR |= (ANAR_100_FULL | ANAR_100_HALF | ANAR_10_FULL | ANAR_10_HALF);
+        anar |= ANAR_100_FULL;
         break;
     case RtSpeedDuplexMode1GFullDuplex:
-        PhyRegDataGBCR |= (GBCR_1000_FULL | GBCR_1000_HALF);
+        gbcr |= GBCR_1000_FULL;
         break;
     case RtSpeedDuplexModeAutoNegotiation:
-        PhyRegDataANAR |= (ANAR_100_FULL | ANAR_100_HALF | ANAR_10_FULL | ANAR_10_HALF);
-        PhyRegDataGBCR |= (GBCR_1000_FULL | GBCR_1000_HALF);
+        anar |= (ANAR_100_FULL | ANAR_100_HALF | ANAR_10_FULL | ANAR_10_HALF);
+        gbcr |= (GBCR_1000_FULL | GBCR_1000_HALF);
+        break;
+    }
+
+    switch (adapter->FlowControl)
+    {
+    case RtFlowControlTxEnabled:
+        anar |= ANAR_ASYM_PAUSE;
+        break;
+    case RtFlowControlRxEnabled:
+        anar |= ANAR_MAC_PAUSE;
+        break;
+    case RtFlowControlTxRxEnabled:
+        anar |= (ANAR_ASYM_PAUSE | ANAR_MAC_PAUSE);
         break;
     }
 
     // update 10/100 register
-    RtAdapterWritePhyUint16(adapter, PHY_REG_ANAR, PhyRegDataANAR);
+    RtAdapterWritePhyUint16(adapter, PHY_REG_ANAR, anar);
 
     // update 1000 register
-    RtAdapterWritePhyUint16(adapter, PHY_REG_GBCR, PhyRegDataGBCR);
+    RtAdapterWritePhyUint16(adapter, PHY_REG_GBCR, gbcr);
 }
 
 void
@@ -190,7 +201,7 @@ RtAdapterCompleteAutoNegotiation(
     }
     else
     {
-        adapter->LinkAutoNeg = FALSE;
+        adapter->LinkAutoNeg = false;
     }
 }
 
@@ -251,26 +262,48 @@ Return Value:
 --*/
 
 {
-    NDIS_MEDIA_CONNECT_STATE mediaState = RtAdapterQueryMediaState(adapter);
+    TraceEntryRtAdapter(adapter);
 
     NET_ADAPTER_AUTO_NEGOTIATION_FLAGS autoNegotiationFlags = NET_ADAPTER_AUTO_NEGOTIATION_NO_FLAGS;
 
-    TraceEntryRtAdapter(adapter, TraceLoggingUInt32(mediaState));
-
     if (adapter->LinkAutoNeg)
     {
-        autoNegotiationFlags =
+        autoNegotiationFlags |=
             NET_ADAPTER_LINK_STATE_XMIT_LINK_SPEED_AUTO_NEGOTIATED |
             NET_ADAPTER_LINK_STATE_RCV_LINK_SPEED_AUTO_NEGOTIATED |
             NET_ADAPTER_LINK_STATE_DUPLEX_AUTO_NEGOTIATED;
     }
 
+    if (adapter->FlowControl != RtFlowControlDisabled)
+    {
+        autoNegotiationFlags |=
+            NET_ADAPTER_LINK_STATE_PAUSE_FUNCTIONS_AUTO_NEGOTIATED;
+    }
+
+    NET_ADAPTER_PAUSE_FUNCTIONS pauseFunctions = NetAdapterPauseFunctionsUnknown;
+
+    switch (adapter->FlowControl)
+    {
+    case RtFlowControlDisabled:
+        pauseFunctions = NetAdapterPauseFunctionsUnsupported;
+        break;
+    case RtFlowControlRxEnabled:
+        pauseFunctions = NetAdapterPauseFunctionsReceiveOnly;
+        break;
+    case RtFlowControlTxEnabled:
+        pauseFunctions = NetAdapterPauseFunctionsSendOnly;
+        break;
+    case RtFlowControlTxRxEnabled:
+        pauseFunctions = NetAdapterPauseFunctionsSendAndReceive;
+        break;
+    }
+
     NET_ADAPTER_LINK_STATE_INIT(
         linkState,
         adapter->LinkSpeed * 1'000'000,
-        mediaState,
+        RtAdapterQueryMediaState(adapter),
         adapter->DuplexMode,
-        NetAdapterPauseFunctionsUnknown,
+        pauseFunctions,
         autoNegotiationFlags);
 
     TraceExit();

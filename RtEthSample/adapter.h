@@ -32,15 +32,30 @@ typedef enum _RT_CHKSUM_OFFLOAD : UCHAR
 
 typedef enum _RT_IM_MODE
 {
-    RtInterruptModerationOff = 0,
-    RtInterruptModerationLow = 1,
-    RtInterruptModerationMedium = 2,
+    RtInterruptModerationDisabled = 0,
+    RtInterruptModerationEnabled = 1,
 } RT_IM_MODE;
+
+typedef enum _RT_IM_LEVEL
+{
+    RtInterruptModerationLow = 0,
+    RtInterruptModerationMedium = 1,
+} RT_IM_LEVEL;
+
+typedef enum _RT_FLOW_CONTROL
+{
+    RtFlowControlDisabled = 0,
+    RtFlowControlTxEnabled = 1,
+    RtFlowControlRxEnabled = 2,
+    RtFlowControlTxRxEnabled = 3,
+} RT_FLOW_CONTROL;
 
 typedef enum _RT_CHIP_TYPE
 {
     RTLUNKNOWN,
-    RTL8168D
+    RTL8168D,
+    RTL8168D_REV_C_REV_D,
+    RTL8168E
 } RT_CHIP_TYPE;
 
 typedef enum _RT_SPEED_DUPLEX_MODE {
@@ -50,7 +65,8 @@ typedef enum _RT_SPEED_DUPLEX_MODE {
     RtSpeedDuplexMode10MFullDuplex = 2,
     RtSpeedDuplexMode100MHalfDuplex = 3,
     RtSpeedDuplexMode100MFullDuplex = 4,
-    RtSpeedDuplexMode1GFullDuplex = 5,
+    // 1Gb Half Duplex is not supported
+    RtSpeedDuplexMode1GFullDuplex = 6,
 
 } RT_SPEED_DUPLEX_MODE;
 
@@ -74,8 +90,8 @@ typedef struct _RT_ADAPTER
     NDIS_HANDLE NdisLegacyAdapterHandle;
 
     // configuration
-    UCHAR PermanentAddress[ETH_LENGTH_OF_ADDRESS];
-    UCHAR CurrentAddress[ETH_LENGTH_OF_ADDRESS];
+    NET_ADAPTER_LINK_LAYER_ADDRESS PermanentAddress;
+    NET_ADAPTER_LINK_LAYER_ADDRESS CurrentAddress;
     BOOLEAN OverrideAddress;
 
     ULONG NumTcb;             // Total number of TCBs
@@ -84,7 +100,7 @@ typedef struct _RT_ADAPTER
     WDFSPINLOCK Lock;
 
     // Packet Filter and look ahead size.
-    ULONG PacketFilter;
+    NET_PACKET_FILTER_TYPES_FLAGS PacketFilter;
     USHORT LinkSpeed;
     NET_IF_MEDIA_DUPLEX_STATE DuplexMode;
 
@@ -131,7 +147,7 @@ typedef struct _RT_ADAPTER
 
     RT_CHIP_TYPE ChipType;
 
-    BOOLEAN LinkAutoNeg;
+    bool LinkAutoNeg;
 
     NDIS_OFFLOAD_ENCAPSULATION OffloadEncapsulation;
 
@@ -161,8 +177,16 @@ typedef struct _RT_ADAPTER
 
     // Hardware capability, managed by INF keyword
     RT_IM_MODE InterruptModerationMode;
+    // Moderation Degree, managed by INF keyword
+    RT_IM_LEVEL InterruptModerationLevel;
     // Runtime disablement, controlled by OID
     bool InterruptModerationDisabled;
+
+    // basic detection of concurrent EEPROM use
+    bool EEPROMSupported;
+    bool EEPROMInUse;
+
+    RT_FLOW_CONTROL FlowControl;
 } RT_ADAPTER;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(RT_ADAPTER, RtGetAdapterContext);
@@ -205,6 +229,7 @@ RtAdapterQueryOffloadConfiguration(
     _In_  RT_ADAPTER const *adapter,
     _Out_ NDIS_OFFLOAD *offloadCaps);
 
+// Lock not required in D0Entry
 _Requires_lock_held_(adapter->Lock)
 void
 RtAdapterUpdateEnabledChecksumOffloads(_In_ RT_ADAPTER *adapter);

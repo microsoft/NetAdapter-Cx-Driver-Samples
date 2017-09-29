@@ -122,11 +122,6 @@ typedef struct _NET_TX_DMA_QUEUE_CONFIG
     //
     PFN_TXQUEUE_CANCEL EvtTxQueueCancel;
 
-    // 
-    // NIC driver packet context information
-    //
-    PCNET_CONTEXT_TYPE_INFO ContextTypeInfo;
-
 } NET_TX_DMA_QUEUE_CONFIG, *PNET_TX_DMA_QUEUE_CONFIG;
 
 VOID
@@ -149,9 +144,6 @@ NET_TX_DMA_QUEUE_CONFIG_INIT(
 
     NetTxQueueConfig->AlignmentRequirement = (ULONG)-1;
 }
-
-#define NET_TX_DMA_QUEUE_CONFIG_SET_DEFAULT_PACKET_CONTEXT_TYPE(_txdmaconfig, _type)    \
-    (_txdmaconfig)->ContextTypeInfo = WDF_GET_CONTEXT_TYPE_INFO(_type);                 \
 
 typedef struct _TxDmaFxStats
 {
@@ -205,9 +197,7 @@ typedef struct _TxDmaFx
 
     // Used to retrieve the framework's packet
     // context from a NET_PACKET
-    PCNET_CONTEXT_TYPE_INFO FxPacketContextTypeInfo;
-    ULONG_PTR FxPacketContextOffset;
-    
+    PNET_PACKET_CONTEXT_TOKEN ContextToken;
 
     // WDM objects
     DEVICE_OBJECT *DeviceObject;
@@ -244,17 +234,7 @@ typedef struct _TX_DMA_FX_PACKET_CONTEXT
     VOID *ScatterGatherBuffer;
     VOID *DmaTransferContext;
 } TX_DMA_FX_PACKET_CONTEXT;
-
-__inline
-TX_DMA_FX_PACKET_CONTEXT *
-_TxDmaFxGetPacketContext(
-    _In_ NET_PACKET *NetPacket,
-    _In_ TxDmaFx *DmaFx
-    )
-{
-    UCHAR *context = (UCHAR*)NetPacketGetTypedContext(NetPacket, DmaFx->FxPacketContextTypeInfo);
-    return (TX_DMA_FX_PACKET_CONTEXT *)(context + DmaFx->FxPacketContextOffset);
-}
+NET_PACKET_DECLARE_CONTEXT_TYPE_WITH_NAME(TX_DMA_FX_PACKET_CONTEXT, _TxDmaFxGetPacketContext);
 
 EVT_TXQUEUE_ADVANCE _TxDmaFxAdvance;
 

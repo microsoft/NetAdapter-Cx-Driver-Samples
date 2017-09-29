@@ -35,13 +35,13 @@ DriverEntry(
     _In_ PDRIVER_OBJECT driverObject,
     _In_ PUNICODE_STRING registryPath)
 {
-    BOOLEAN traceLoggingRegistered = FALSE;
+    bool traceLoggingRegistered = false;
     NTSTATUS status = STATUS_SUCCESS;
 
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
         TraceLoggingRegister(RealtekTraceProvider));
 
-    traceLoggingRegistered = TRUE;
+    traceLoggingRegistered = true;
 
     TraceEntry(TraceLoggingUnicodeString(registryPath));
 
