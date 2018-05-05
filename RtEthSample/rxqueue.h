@@ -16,10 +16,14 @@ struct RT_RXQUEUE
     RT_ADAPTER *Adapter;
     RT_INTERRUPT *Interrupt;
 
-    NET_RING_BUFFER *RingBuffer;
+    PCNET_DATAPATH_DESCRIPTOR DatapathDescriptor;
 
     WDFCOMMONBUFFER RxdArray;
     RT_RX_DESC *RxdBase;
+
+    size_t ChecksumExtensionOffSet;
+
+    ULONG QueueId;
 };
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(RT_RXQUEUE, RtGetRxQueueContext);

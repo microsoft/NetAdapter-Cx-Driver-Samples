@@ -29,13 +29,13 @@
   <PropertyGroup Label="Globals">
     <ProjectGuid>{EAC78963-C6D0-4C8C-918D-5B5996AE80AC}</ProjectGuid>
     <RootNamespace>$(MSBuildProjectName)</RootNamespace>
-    <WindowsTargetPlatformVersion>10.0.16299.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>10.0.17134.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <PropertyGroup Label="Configuration">
     <TargetVersion>Windows10</TargetVersion>
     <NetAdapterDriver>true</NetAdapterDriver>
     <NETADAPTER_VERSION_MAJOR>1</NETADAPTER_VERSION_MAJOR>
-    <NETADAPTER_VERSION_MINOR>1</NETADAPTER_VERSION_MINOR>
+    <NETADAPTER_VERSION_MINOR>2</NETADAPTER_VERSION_MINOR>
     <KMDF_VERSION_MAJOR>1</KMDF_VERSION_MAJOR>
     <KMDF_VERSION_MINOR>23</KMDF_VERSION_MINOR>
     <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">True</UseDebugLibraries>
@@ -98,6 +98,7 @@
     <ClCompile Include="device.cpp" />
     <ClCompile Include="driver.cpp" />
     <ClCompile Include="eeprom.cpp" />
+    <ClCompile Include="gigamac.cpp" />
     <ClCompile Include="interrupt.cpp" />
     <ClCompile Include="link.cpp" />
     <ClCompile Include="oid.cpp" />

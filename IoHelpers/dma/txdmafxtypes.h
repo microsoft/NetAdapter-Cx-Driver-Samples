@@ -6,12 +6,14 @@
 #define _TX_DMA_FX_RETURN_IF_NTSTATUS_FAILED(status)   { NTSTATUS __statusRet = (status); if (__statusRet < 0) { return __statusRet;} }
 #define _TX_DMA_FX_IS_POWER_OF_TWO(_n) (((_n) != 0) && !((_n) & ((_n) - 1)))
 
-#define _TX_DMA_FX_PACKET_SET_BOUNCED_FLAG(_packet)   (_packet)->Data.Scratch = TRUE
-#define _TX_DMA_FX_PACKET_CLEAR_BOUNCED_FLAG(_packet) (_packet)->Data.Scratch = FALSE
-#define _TX_DMA_FX_IS_PACKET_BOUNCED(_packet)         (_packet)->Data.Scratch
+#define _TX_DMA_FX_PACKET_SET_BOUNCED_FLAG(_ringBufferSet, _packet)   NET_PACKET_GET_FRAGMENT(_packet, descriptor, 0)->Scratch = TRUE
+#define _TX_DMA_FX_PACKET_CLEAR_BOUNCED_FLAG(_ringBufferSet, _packet) NET_PACKET_GET_FRAGMENT(_packet, descriptor, 0)->Scratch = FALSE
+#define _TX_DMA_FX_IS_PACKET_BOUNCED(_ringBufferSet, _packet)         NET_PACKET_GET_FRAGMENT(_packet, descriptor, 0)->Scratch
 
 #define _TX_DMA_FX_NUM_BOUNCE_BUFFERS ( 1 << 4 )
 #define _TX_DMA_FX_DEFAULT_SCATTER_GATHER_ELEMENTS 16
+
+#define _TX_DMA_FX_MAXIMUM_BOUNCE_BUFFER_SIZE 0x40000
 
 #ifndef TX_DMA_FX_ALLOC_TAG
 #pragma message(": warning: It is a good practice to define TX_DMA_FX_ALLOC_TAG. Defaulting to WdfDriverGlobals->DriverTag.")
@@ -171,6 +173,10 @@ typedef struct _TxDmaFxStats
         // returned STATUS_INSUFFICIENT_RESOURCES
         ULONG InsufficientResourcesCount;
 
+        // Number of times the pre-calculated SG List size was not enough to
+        // describe a packet
+        ULONG BufferTooSmall;
+
         // Counts other errors from DMA APIs
         ULONG OtherErrors;
     } DMA;
@@ -186,8 +192,8 @@ typedef struct _TxDmaFx
     // the NIC driver
     NET_TX_DMA_QUEUE_CONFIG Config;
 
-    // Cache of the NET_RING_BUFFER pointer
-    NET_RING_BUFFER *RingBuffer;
+    // Cache of the NET_DATAPATH_DESCRIPTOR pointer
+    PCNET_DATAPATH_DESCRIPTOR  Descriptor;
 
     // If the NIC driver provided the AddressWidth
     // parameter in the configuration, this stores
@@ -217,6 +223,7 @@ typedef struct _TxDmaFx
     PHYSICAL_ADDRESS BounceBasePA;
     VOID *BounceBaseVA;
     ULONG BounceBufferSize;
+    BOOLEAN BounceAlways;
 
     ULONG NumBounceBuffers;
     ULONG BounceFreeIndex;

@@ -72,6 +72,7 @@ Exit:
 
 _Use_decl_annotations_
 NTSTATUS
+#pragma prefast(suppress: __WARNING_EXCESSIVESTACKUSAGE, "TVS:12813961 call stack depth well-defined")
 EvtDriverDeviceAdd(
     _In_ WDFDRIVER driver,
     _Inout_ PWDFDEVICE_INIT deviceInit)
@@ -111,6 +112,8 @@ EvtDriverDeviceAdd(
     WDFDEVICE wdfDevice;
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
         WdfDeviceCreate(&deviceInit, &deviceAttributes, &wdfDevice));
+
+    WdfDeviceSetAlignmentRequirement(wdfDevice, FILE_256_BYTE_ALIGNMENT);
 
     // Default wake settings is good enough
     WDF_DEVICE_POWER_POLICY_WAKE_SETTINGS wakeSettings;

@@ -110,6 +110,9 @@
     <ClCompile Include="interrupt.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="gigamac.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="rtk.rc">

@@ -58,7 +58,7 @@ Description:
 
     // Check if a maximum packet size is given, the framework needs this information
     // to make internal allocations
-    if (Config->MaximumPacketSize == 0)
+    if (Config->MaximumPacketSize == 0 || Config->MaximumPacketSize > _TX_DMA_FX_MAXIMUM_BOUNCE_BUFFER_SIZE)
         return STATUS_INVALID_PARAMETER;
 
     return STATUS_SUCCESS;
@@ -128,19 +128,30 @@ Description:
 
 */
 {
-    _TX_DMA_FX_RETURN_IF_NTSTATUS_FAILED(
-        DmaFx->DmaAdapter->DmaOperations->CalculateScatterGatherList(
-            DmaFx->DmaAdapter,
-            NULL,
-            ULongToPtr(PAGE_SIZE - 1),
-            DmaFx->Config.MaximumPacketSize,
-            &DmaFx->ScatterGatherListSize,
-            NULL));
+    NTSTATUS status = DmaFx->DmaAdapter->DmaOperations->CalculateScatterGatherList(
+        DmaFx->DmaAdapter,
+        NULL,
+        ULongToPtr(PAGE_SIZE - 1),
+        DmaFx->Config.MaximumPacketSize,
+        &DmaFx->ScatterGatherListSize,
+        NULL);
+
+    switch (status)
+    {
+    // Couldn't calculate SGL
+    case STATUS_INSUFFICIENT_RESOURCES:
+    case STATUS_BUFFER_TOO_SMALL:
+        DmaFx->BounceAlways = TRUE;
+        return STATUS_SUCCESS;
+    }
+
+    _TX_DMA_FX_RETURN_IF_NTSTATUS_FAILED(status);
 
     //
     // Allocate memory for scatter-gather list
     //
-    NET_RING_BUFFER *ringBuffer = DmaFx->RingBuffer;
+    NET_RING_BUFFER *ringBuffer = NET_DATAPATH_DESCRIPTOR_GET_PACKET_RING_BUFFER(DmaFx->Descriptor);
+    PCNET_DATAPATH_DESCRIPTOR descriptor = DmaFx->Descriptor;
     size_t memSize;
 
     _TX_DMA_FX_RETURN_IF_NTSTATUS_FAILED(
@@ -191,8 +202,8 @@ Description:
     // Initialize the private packet context for each packet in the ring buffer
     for (UINT32 i = 0; i < ringBuffer->NumberOfElements; i++)
     {
-        NET_PACKET *packet = NetRingBufferGetPacketAtIndex(ringBuffer, i);
-        TX_DMA_FX_PACKET_CONTEXT *fxPacketContext = _TxDmaFxGetPacketContextFromToken(packet, DmaFx->ContextToken);
+        NET_PACKET *packet = NetRingBufferGetPacketAtIndex(descriptor, i);
+        TX_DMA_FX_PACKET_CONTEXT *fxPacketContext = _TxDmaFxGetPacketContextFromToken(descriptor, packet, DmaFx->ContextToken);
 
         fxPacketContext->ScatterGatherBuffer = (PUCHAR)DmaFx->SgListMem + i * DmaFx->ScatterGatherListSize;
         fxPacketContext->DmaTransferContext = (UCHAR*)dmaArray + i * DMA_TRANSFER_CONTEXT_SIZE_V1;
@@ -246,6 +257,7 @@ Description:
             WDF_NO_OBJECT_ATTRIBUTES,
             &commonBuffer));
 
+    DmaFx->BounceAlways = FALSE;
     DmaFx->BounceBasePA = WdfCommonBufferGetAlignedLogicalAddress(commonBuffer);
     DmaFx->BounceBaseVA = WdfCommonBufferGetAlignedVirtualAddress(commonBuffer);
 
@@ -277,7 +289,19 @@ Description:
 
     C_ASSERT(_TX_DMA_FX_IS_POWER_OF_TWO(_TX_DMA_FX_NUM_BOUNCE_BUFFERS));
 
-    DmaFx->NumBounceBuffers = _TX_DMA_FX_NUM_BOUNCE_BUFFERS;
+    ULONG numberOfBounceBuffers = 1;
+    ULONG temp = _TX_DMA_FX_MAXIMUM_BOUNCE_BUFFER_SIZE / DmaFx->Config.MaximumPacketSize;
+
+    while (temp != 1)
+    {
+        temp = temp >> 1;
+        numberOfBounceBuffers = numberOfBounceBuffers << 1;
+    }
+
+    DmaFx->NumBounceBuffers =
+        (numberOfBounceBuffers > _TX_DMA_FX_NUM_BOUNCE_BUFFERS) ?
+        _TX_DMA_FX_NUM_BOUNCE_BUFFERS : numberOfBounceBuffers;
+
     DmaFx->DmaAdapter = WdfDmaEnablerWdmGetDmaAdapter(
         DmaFx->Config.DmaEnabler,
         WdfDmaDirectionWriteToDevice);
@@ -307,6 +331,7 @@ _IRQL_requires_max_(DISPATCH_LEVEL)
 __inline
 ULONG
 _TxDmaFxCopyPacketToBuffer(
+    _In_ PCNET_DATAPATH_DESCRIPTOR descriptor,
     _In_ NET_PACKET *packet,
     _Out_writes_bytes_(bufferSize) VOID *buffer,
     _In_ ULONG bufferSize
@@ -321,11 +346,11 @@ Description:
 {
     UCHAR *p = (UCHAR*)buffer;
     ULONG bytesRemaining = bufferSize;
+    UINT32 fragmentCount = NetPacketGetFragmentCount(descriptor, packet);
 
-    NET_PACKET_FRAGMENT *fragment;
-
-    for (fragment = &packet->Data; ; fragment = NET_PACKET_FRAGMENT_GET_NEXT(fragment))
+    for (UINT32 i = 0; i < fragmentCount; i++)
     {
+        NET_PACKET_FRAGMENT *fragment = NET_PACKET_GET_FRAGMENT(packet, descriptor, i);
         if (!NT_VERIFY(bytesRemaining >= fragment->ValidLength))
             break;
 
@@ -358,12 +383,14 @@ Description:
 */
 {
     SCATTER_GATHER_LIST *sgl = DmaFx->SpareSgl;
-    NET_PACKET_FRAGMENT *fragment;
+    PCNET_DATAPATH_DESCRIPTOR descriptor = DmaFx->Descriptor;
+    UINT32 fragmentCount = NetPacketGetFragmentCount(descriptor, NetPacket);
 
     sgl->NumberOfElements = 0;
 
-    for (fragment = &NetPacket->Data; ; fragment = NET_PACKET_FRAGMENT_GET_NEXT(fragment))
+    for (UINT32 i = 0; i < fragmentCount; i++)
     {
+        NET_PACKET_FRAGMENT *fragment = NET_PACKET_GET_FRAGMENT(NetPacket, descriptor, i);
         ULONG_PTR vaStart = (ULONG_PTR)fragment->VirtualAddress + (ULONG)fragment->Offset;
         ULONG_PTR vaEnd = vaStart + (ULONG)fragment->ValidLength;
 
@@ -421,11 +448,12 @@ Description:
 {
     ULONG totalFrameLength = 0;
     ULONG mdlChainOffset = 0;
+    PCNET_DATAPATH_DESCRIPTOR descriptor = DmaFx->Descriptor;
+    UINT32 fragmentCount = NetPacketGetFragmentCount(descriptor, NetPacket);
 
-    NET_PACKET_FRAGMENT *fragment;
-
-    for (fragment = &NetPacket->Data; ; fragment = NET_PACKET_FRAGMENT_GET_NEXT(fragment))
+    for (UINT32 i = 0; i < fragmentCount; i++)
     {
+        NET_PACKET_FRAGMENT *fragment = NET_PACKET_GET_FRAGMENT(NetPacket, descriptor, i);
         if (fragment->Offset > 0)
         {
             if (totalFrameLength == 0)
@@ -441,14 +469,14 @@ Description:
     }
 
     DMA_ADAPTER *dmaAdapter = DmaFx->DmaAdapter;
-    TX_DMA_FX_PACKET_CONTEXT *fxPacketContext = _TxDmaFxGetPacketContextFromToken(NetPacket, DmaFx->ContextToken);
+    TX_DMA_FX_PACKET_CONTEXT *fxPacketContext = _TxDmaFxGetPacketContextFromToken(descriptor, NetPacket, DmaFx->ContextToken);
 
     _TX_DMA_FX_RETURN_IF_NTSTATUS_FAILED(
         dmaAdapter->DmaOperations->InitializeDmaTransferContext(
             dmaAdapter,
             fxPacketContext->DmaTransferContext));
 
-    MDL *firstMdl = NetPacket->Data.Mapping.Mdl;
+    MDL *firstMdl = NET_PACKET_GET_FRAGMENT(NetPacket, descriptor, 0)->Mapping.Mdl;
 
     NTSTATUS buildSGLStatus = dmaAdapter->DmaOperations->BuildScatterGatherListEx(
         dmaAdapter,
@@ -513,6 +541,9 @@ Description:
                 case STATUS_INSUFFICIENT_RESOURCES:
                     DmaFx->Statistics.DMA.InsufficientResourcesCount += 1;
                     break;
+                case STATUS_BUFFER_TOO_SMALL:
+                    DmaFx->Statistics.DMA.BufferTooSmall += 1;
+                    break;
                 default:
                     DmaFx->Statistics.DMA.OtherErrors += 1;
                     break;
@@ -557,7 +588,8 @@ Description:
     ULONG bounce = DmaFx->BounceBusyIndex % DmaFx->NumBounceBuffers;
     
     PVOID buffer = (UCHAR*)DmaFx->BounceBaseVA + bounce * DmaFx->BounceBufferSize;
-    ULONG packetLength = _TxDmaFxCopyPacketToBuffer(NetPacket, buffer, DmaFx->BounceBufferSize);
+    PCNET_DATAPATH_DESCRIPTOR descriptor = DmaFx->Descriptor;
+    ULONG packetLength = _TxDmaFxCopyPacketToBuffer(descriptor, NetPacket, buffer, DmaFx->BounceBufferSize);
 
     u.sgl.NumberOfElements = 1;
     u.sgl.Elements[0].Length = packetLength;
@@ -568,7 +600,7 @@ Description:
         NetPacket,
         &u.sgl);
     
-    _TX_DMA_FX_PACKET_SET_BOUNCED_FLAG(NetPacket);
+    _TX_DMA_FX_PACKET_SET_BOUNCED_FLAG(descriptor, NetPacket);
 
     DmaFx->Statistics.Packet.BounceSuccess += 1;
     DmaFx->BounceBusyIndex += 1;
@@ -591,15 +623,17 @@ _TxDmaFxBounceAnalysis(
 
     ULONG numDescriptorsRequired = 0;
     ULONGLONG totalPacketSize = 0;
-    BOOLEAN bounce = FALSE;
+    BOOLEAN bounce = DmaFx->BounceAlways;
+    PCNET_DATAPATH_DESCRIPTOR descriptor = DmaFx->Descriptor;
+    UINT32 fragmentCount = NetPacketGetFragmentCount(descriptor, NetPacket);
 
-    for (NET_PACKET_FRAGMENT *fragment = &NetPacket->Data;
-        fragment;
-        fragment = NET_PACKET_FRAGMENT_GET_NEXT(fragment))
+    for (UINT32 i = 0; i < fragmentCount; i++)
     {
+        NET_PACKET_FRAGMENT *fragment = NET_PACKET_GET_FRAGMENT(NetPacket, descriptor, i);
+
         // If a fragment other than the first one has an offset, the DMA
         // APIs won't be able to properly map the buffers.
-        if (fragment->Offset > 0 && fragment != &NetPacket->Data)
+        if (fragment->Offset > 0 && i != 0)
             bounce = TRUE;
         
         MDL *mdl = (MDL*)fragment->Mapping.Mdl;

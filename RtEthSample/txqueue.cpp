@@ -20,26 +20,29 @@
 void
 RtUpdateSendStats(
     _In_ RT_TXQUEUE *tx,
-    _In_ NET_PACKET *packet)
+    _In_ NET_PACKET *packet
+    )
 {
+    PCNET_DATAPATH_DESCRIPTOR descriptor = tx->DatapathDescriptor;
     if (packet->Layout.Layer2Type != NET_PACKET_LAYER2_TYPE_ETHERNET)
     {
         return;
     }
 
+    auto fragment = NET_PACKET_GET_FRAGMENT(packet, descriptor, 0);
     // Ethernet header should be in first fragment
-    if (packet->Data.ValidLength < sizeof(ETHERNET_HEADER))
+    if (fragment->ValidLength < sizeof(ETHERNET_HEADER))
     {
         return;
     }
 
-    PUCHAR ethHeader = (PUCHAR)packet->Data.VirtualAddress + packet->Data.Offset;
+    PUCHAR ethHeader = (PUCHAR)fragment->VirtualAddress + fragment->Offset;
+    UINT32 fragmentCount = NetPacketGetFragmentCount(descriptor, packet);
 
     ULONG length = 0;
-    for (NET_PACKET_FRAGMENT *fragment = &packet->Data;
-        fragment;
-        fragment = NET_PACKET_FRAGMENT_GET_NEXT(fragment))
+    for (UINT32 i = 0; i < fragmentCount; i ++)
     {
+        fragment = NET_PACKET_GET_FRAGMENT(packet, descriptor, i);
         length += (ULONG)fragment->ValidLength;
 
         if (fragment->LastFragmentOfFrame)
@@ -68,22 +71,62 @@ RtUpdateSendStats(
 TX_DMA_BOUNCE_ANALYSIS
 EvtSgBounceAnalysis(
     _In_ NETTXQUEUE txQueue,
-    _In_ NET_PACKET *packet)
+    _In_ NET_PACKET *packet
+    )
 {
     UNREFERENCED_PARAMETER((txQueue, packet));
 
     return TxDmaTransmitInPlace;
 }
 
+static
 USHORT
-RtGetPacketChecksumSetting(NET_PACKET *packet)
+RtGetPacketLsoStatusSetting(
+    _In_ const NET_PACKET *packet
+    )
 {
+    const USHORT layer4HeaderOffset =
+        packet->Layout.Layer2HeaderLength +
+        packet->Layout.Layer3HeaderLength;
+
+    if (NetPacketIsIpv4(packet))
+    {
+        return TXS_IPV6RSS_GTSEN_IPV4 | (USHORT)(layer4HeaderOffset << TXS_IPV4RSS_TCPHDR_OFFSET);
+    }
+    else if (NetPacketIsIpv6(packet))
+    {
+        return TXS_IPV6RSS_GTSEN_IPV6 | (USHORT)(layer4HeaderOffset << TXS_IPV6RSS_TCPHDR_OFFSET);
+    }
+
+    return 0;
+}
+
+static
+ULONG
+RtGetPacketLsoMss(
+    _In_ const NET_PACKET *packet,
+    _In_ size_t lsoOffset
+)
+{
+    return NetPacketGetPacketLargeSendSegmentation(packet, lsoOffset)->TCP.Mss;
+}
+
+static
+USHORT
+RtGetPacketChecksumSetting(
+    _In_ NET_PACKET *packet,
+    _In_ size_t checksumOffset
+    )
+{
+    NET_PACKET_CHECKSUM* checksumInfo =
+        NetPacketGetPacketChecksum(packet, checksumOffset);
+
     if (packet->Layout.Layer3Type == NET_PACKET_LAYER3_TYPE_IPV4_NO_OPTIONS ||
         packet->Layout.Layer3Type == NET_PACKET_LAYER3_TYPE_IPV4_WITH_OPTIONS ||
         packet->Layout.Layer3Type == NET_PACKET_LAYER3_TYPE_IPV4_UNSPECIFIED_OPTIONS)
     {
         // Prioritize layer4 checksum first
-        if (packet->Checksum.Layer4 == NET_PACKET_TX_CHECKSUM_REQUIRED)
+        if (checksumInfo->Layer4 == NET_PACKET_TX_CHECKSUM_REQUIRED)
         {
             if (packet->Layout.Layer4Type == NET_PACKET_LAYER4_TYPE_TCP)
             {
@@ -97,7 +140,7 @@ RtGetPacketChecksumSetting(NET_PACKET *packet)
         }
 
         // If no layer4 checksum is required, then just do layer 3 checksum
-        if (packet->Checksum.Layer3 == NET_PACKET_TX_CHECKSUM_REQUIRED)
+        if (checksumInfo->Layer3 == NET_PACKET_TX_CHECKSUM_REQUIRED)
         {
             return TXS_IPV6RSS_IPV4CS;
         }
@@ -109,7 +152,7 @@ RtGetPacketChecksumSetting(NET_PACKET *packet)
         packet->Layout.Layer3Type == NET_PACKET_LAYER3_TYPE_IPV6_WITH_EXTENSIONS ||
         packet->Layout.Layer3Type == NET_PACKET_LAYER3_TYPE_IPV6_UNSPECIFIED_EXTENSIONS)
     {
-        if (packet->Checksum.Layer4 == NET_PACKET_TX_CHECKSUM_REQUIRED)
+        if (checksumInfo->Layer4 == NET_PACKET_TX_CHECKSUM_REQUIRED)
         {
             const USHORT layer4HeaderOffset =
                 packet->Layout.Layer2HeaderLength +
@@ -139,11 +182,13 @@ void
 EvtSgProgramDescriptors(
     _In_ NETTXQUEUE txQueue,
     _In_ NET_PACKET *packet,
-    _In_ SCATTER_GATHER_LIST *sgl)
+    _In_ SCATTER_GATHER_LIST *sgl
+    )
 {
     RT_TXQUEUE *tx = RtGetTxQueueContext(txQueue);
 
     RtUpdateSendStats(tx, packet);
+    RT_TCB *tcb = GetTcbFromPacketFromToken(tx->DatapathDescriptor, packet, tx->TcbToken);
 
     for (ULONG sgeIndex = 0; sgeIndex < sgl->NumberOfElements; sgeIndex++)
     {
@@ -161,17 +206,17 @@ EvtSgProgramDescriptors(
         if (sgeIndex == 0)
         {
             status |= TXS_FS;
+
+            // Store the hardware descriptor of the first
+            // scatter/gather element
+            tcb->FirstTxDescIdx = tx->TxDescGetptr;
+            tcb->NumTxDesc = 0;
         }
 
         // Last fragment of packet
         if (sgeIndex + 1 == sgl->NumberOfElements)
         {
             status |= TXS_LS;
-
-            // Store the hardware descriptor of the last
-            // scatter/gather element
-            RT_TCB *tcb = GetTcbFromPacketFromToken(packet, tx->TcbToken);
-            tcb->LastTxDesc = &tx->TxdBase[tx->TxDescGetptr];
         }
 
         // TODO: vlan
@@ -179,17 +224,37 @@ EvtSgProgramDescriptors(
         txd->BufferAddress = sge->Address;
         txd->TxDescDataIpv6Rss_All.length = (USHORT)sge->Length;
         txd->TxDescDataIpv6Rss_All.VLAN_TAG.Value = 0;
-        txd->TxDescDataIpv6Rss_All.OffloadGsoMssTagc = RtGetPacketChecksumSetting(packet);
+
+        if ((packet->Layout.Layer4Type == NET_PACKET_LAYER4_TYPE_TCP) &&
+            (RtGetPacketLsoMss(packet, tx->LsoExtensionOffset) > 0))
+        {
+            if (tx->LsoExtensionOffset != NET_PACKET_EXTENSION_INVALID_OFFSET)
+            {
+                status |= RtGetPacketLsoStatusSetting(packet);
+                txd->TxDescDataIpv6Rss_All.OffloadGsoMssTagc = (USHORT)(RtGetPacketLsoMss(packet, tx->LsoExtensionOffset) << TXS_IPV6RSS_MSS_OFFSET);
+            }
+        }
+        else
+        {
+            if (tx->ChecksumExtensionOffSet != NET_PACKET_EXTENSION_INVALID_OFFSET)
+            {
+                txd->TxDescDataIpv6Rss_All.OffloadGsoMssTagc = RtGetPacketChecksumSetting(packet, tx->ChecksumExtensionOffSet);
+            }
+        }
 
         MemoryBarrier();
         txd->TxDescDataIpv6Rss_All.status = status;
 
         tx->TxDescGetptr = (tx->TxDescGetptr + 1) % tx->NumTxDesc;
     }
+
+    tcb->NumTxDesc = sgl->NumberOfElements;
 }
 
 void
-EvtSgFlushTransation(_In_ NETTXQUEUE txQueue)
+EvtSgFlushTransation(
+    _In_ NETTXQUEUE txQueue
+    )
 {
     auto tx = RtGetTxQueueContext(txQueue);
     MemoryBarrier();
@@ -199,21 +264,37 @@ EvtSgFlushTransation(_In_ NETTXQUEUE txQueue)
 NTSTATUS
 EvtSgGetPacketStatus(
     _In_ NETTXQUEUE txQueue,
-    _In_ NET_PACKET *packet)
+    _In_ NET_PACKET *packet
+    )
 {
     RT_TXQUEUE *tx = RtGetTxQueueContext(txQueue);
-    RT_TX_DESC *txd = GetTcbFromPacketFromToken(packet, tx->TcbToken)->LastTxDesc;
+    RT_TCB *tcb = GetTcbFromPacketFromToken(tx->DatapathDescriptor, packet, tx->TcbToken);
+    RT_TX_DESC *txd = &tx->TxdBase[tcb->FirstTxDescIdx];
 
     // Look at the status flags on the last fragment in the packet.
     // If the hardware-ownership flag is still set, then the packet isn't done.
     if (0 != (txd->TxDescDataIpv6Rss_All.status & TXS_OWN))
+    {
         return STATUS_PENDING;
+    }
+    else
+    {
+        for (size_t idx = 0; idx < tcb->NumTxDesc; idx++)
+        {
+            size_t nextTxDescIdx = (tcb->FirstTxDescIdx + idx) % tx->NumTxDesc;
+            txd = &tx->TxdBase[nextTxDescIdx];
+            txd->TxDescDataIpv6Rss_All.status = 0;
+        }
+    }
 
     return STATUS_SUCCESS;
 }
 
 NTSTATUS
-RtTxQueueInitialize(_In_ NETTXQUEUE txQueue, _In_ RT_ADAPTER * adapter)
+RtTxQueueInitialize(
+    _In_ NETTXQUEUE txQueue,
+    _In_ RT_ADAPTER * adapter
+    )
 {
     NTSTATUS status = STATUS_SUCCESS;
     RT_TXQUEUE *tx = RtGetTxQueueContext(txQueue);
@@ -225,6 +306,8 @@ RtTxQueueInitialize(_In_ NETTXQUEUE txQueue, _In_ RT_ADAPTER * adapter)
     tx->TPPoll = &adapter->CSRAddress->TPPoll;
     tx->Interrupt = adapter->Interrupt;
     tx->NumTxDesc = (USHORT)(adapter->NumTcb * RT_MAX_PHYS_BUF_COUNT);
+    
+    tx->DatapathDescriptor = NetTxQueueGetDatapathDescriptor(txQueue);
 
     // Allocate descriptors
     {
@@ -251,7 +334,9 @@ Exit:
 }
 
 _Use_decl_annotations_
-void RtTxQueueStart(_In_ RT_TXQUEUE *tx)
+void RtTxQueueStart(
+    _In_ RT_TXQUEUE *tx
+    )
 {
     RT_ADAPTER *adapter = tx->Adapter;
 
@@ -269,14 +354,17 @@ void RtTxQueueStart(_In_ RT_TXQUEUE *tx)
     adapter->CSRAddress->CmdReg |= CR_TE;
 
     // data sheet says TCR should only be modified after the transceiver is enabled
-    adapter->CSRAddress->TCR = (TCR_RCR_MXDMA_UNLIMITED << TCR_MXDMA_OFFSET) | (TCR_IFG0 | TCR_IFG1);
+    adapter->CSRAddress->TCR = (TCR_RCR_MXDMA_UNLIMITED << TCR_MXDMA_OFFSET) | (TCR_IFG0 | TCR_IFG1 | TCR_BIT0);
 }
 
 void
-RtTxQueueSetInterrupt(_In_ RT_TXQUEUE *tx, _In_ BOOLEAN notificationEnabled)
+RtTxQueueSetInterrupt(
+    _In_ RT_TXQUEUE *tx,
+    _In_ BOOLEAN notificationEnabled
+    )
 {
     InterlockedExchange(&tx->Interrupt->TxNotifyArmed, notificationEnabled);
-    RtUpdateImr(tx->Interrupt);
+    RtUpdateImr(tx->Interrupt, 0);
 
     if (!notificationEnabled)
         // block this thread until we're sure any outstanding DPCs are complete.
@@ -287,7 +375,9 @@ RtTxQueueSetInterrupt(_In_ RT_TXQUEUE *tx, _In_ BOOLEAN notificationEnabled)
 
 _Use_decl_annotations_
 void
-EvtTxQueueDestroy(_In_ WDFOBJECT txQueue)
+EvtTxQueueDestroy(
+    _In_ WDFOBJECT txQueue
+    )
 {
     RT_TXQUEUE *tx = RtGetTxQueueContext(txQueue);
 
@@ -309,7 +399,8 @@ _Use_decl_annotations_
 VOID
 EvtTxQueueSetNotificationEnabled(
     _In_ NETTXQUEUE txQueue,
-    _In_ BOOLEAN notificationEnabled)
+    _In_ BOOLEAN notificationEnabled
+    )
 {
     TraceEntry(TraceLoggingPointer(txQueue), TraceLoggingBoolean(notificationEnabled));
 
@@ -323,7 +414,8 @@ EvtTxQueueSetNotificationEnabled(
 _Use_decl_annotations_
 void
 EvtTxQueueCancel(
-    _In_ NETTXQUEUE txQueue)
+    _In_ NETTXQUEUE txQueue
+    )
 {
     TraceEntry(TraceLoggingPointer(txQueue, "TxQueue"));
 

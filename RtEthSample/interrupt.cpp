@@ -16,6 +16,90 @@
 #include "adapter.h"
 #include "link.h"
 
+static
+UINT32
+RtInterruptIsrGet(
+    _In_ RT_INTERRUPT *interrupt,
+    _In_ ULONG queueId)
+{
+    UINT32 isr = 0;
+
+    switch (queueId)
+    {
+
+    case 0:
+        isr = *interrupt->Isr[queueId].Address16;
+        break;
+
+    default:
+        if (interrupt->Adapter->RxQueues[queueId])
+        {
+            isr = *interrupt->Isr[queueId].Address8;
+        }
+        break;
+
+    }
+
+    return isr;
+}
+
+static
+VOID
+RtInterruptImrPut(
+    _In_ RT_INTERRUPT *interrupt,
+    _In_ ULONG queueId,
+    _In_ UINT32 value)
+{
+    switch (queueId)
+    {
+    case 0:
+        *interrupt->Imr[queueId].Address16 = (UINT16)value;
+        return;
+    }
+
+    *interrupt->Imr[queueId].Address8 = (UINT8)value;
+}
+
+static
+VOID
+RtInterruptIsrPut(
+    _In_ RT_INTERRUPT *interrupt,
+    _In_ ULONG queueId,
+    _In_ UINT32 value)
+{
+    if (value == 0)
+    {
+        return;
+    }
+
+    switch (queueId)
+    {
+    case 0:
+        *interrupt->Isr[queueId].Address16 = (UINT16)value;
+        return;
+    }
+
+    *interrupt->Isr[queueId].Address8 = (UINT8)value;
+}
+
+static
+VOID
+RtInterruptSecondaryImrUpdate(
+    _In_ RT_INTERRUPT *interrupt,
+    _In_ ULONG queueId,
+    _In_ UINT32 isr,
+    _In_ UINT8 imr)
+{
+    if (interrupt->Adapter->RxQueues[queueId])
+    {
+        RtInterruptImrPut(interrupt, queueId, imr);
+        if (isr)
+        {
+            interrupt->NumRxInterrupts[queueId]++;
+        }
+    }
+}
+
 NTSTATUS
 RtInterruptCreate(
     _In_ WDFDEVICE wdfDevice,
@@ -55,35 +139,52 @@ Exit:
 void
 RtInterruptInitialize(_In_ RT_INTERRUPT *interrupt)
 {
-    *interrupt->IMR = 0;
+    RtInterruptImrPut(interrupt, 0, 0);
+    RtInterruptImrPut(interrupt, 1, 0);
+    RtInterruptImrPut(interrupt, 2, 0);
+    RtInterruptImrPut(interrupt, 3, 0);
 }
 
-USHORT
-RtCalculateImr(_In_ RT_INTERRUPT *interrupt)
+static
+UINT16
+RtCalculateImr(
+    _In_ RT_INTERRUPT *interrupt,
+    _In_ ULONG queueId)
 {
-    USHORT imr = RtDefaultInterruptFlags;
+    UINT16 imr = 0;
 
-    if (interrupt->TxNotifyArmed)
+    if (queueId == 0)
     {
-        imr |= RtTxInterruptFlags;
+        imr = RtDefaultInterruptFlags;
+
+        if (interrupt->TxNotifyArmed)
+        {
+            imr |= RtTxInterruptFlags;
+        }
+
+        if (interrupt->RxNotifyArmed[0])
+        {
+            imr |= RtRxInterruptFlags;
+        }
     }
-
-    if (interrupt->RxNotifyArmed)
+    else if (interrupt->RxNotifyArmed[queueId])
     {
-        imr |= RtRxInterruptFlags;
+        imr = RtRxInterruptSecondaryFlags;
     }
 
     return imr;
 }
 
 void
-RtUpdateImr(_In_ RT_INTERRUPT *interrupt)
+RtUpdateImr(
+    _In_ RT_INTERRUPT *interrupt,
+    _In_ ULONG queueId)
 {
-    WdfInterruptAcquireLock(interrupt->Handle); {
+    WdfInterruptAcquireLock(interrupt->Handle);
 
-        *interrupt->IMR = RtCalculateImr(interrupt);
+    RtInterruptImrPut(interrupt, queueId, RtCalculateImr(interrupt, queueId));
 
-    } WdfInterruptReleaseLock(interrupt->Handle);
+    WdfInterruptReleaseLock(interrupt->Handle);
 }
 
 _Use_decl_annotations_
@@ -100,7 +201,10 @@ EvtInterruptEnable(
     // so do not grab the lock internally
 
     RT_INTERRUPT *interrupt = RtGetInterruptContext(wdfInterrupt);
-    *interrupt->IMR = RtCalculateImr(interrupt);
+    RtInterruptImrPut(interrupt, 0, RtCalculateImr(interrupt, 0));
+    RtInterruptImrPut(interrupt, 1, RtCalculateImr(interrupt, 1));
+    RtInterruptImrPut(interrupt, 2, RtCalculateImr(interrupt, 2));
+    RtInterruptImrPut(interrupt, 3, RtCalculateImr(interrupt, 3));
 
     TraceExit();
     return STATUS_SUCCESS;
@@ -119,8 +223,7 @@ EvtInterruptDisable(
     // Framework sychronizes EvtInterruptDisable with WdfInterruptAcquireLock
     // so do not grab the lock internally
 
-    RT_INTERRUPT *interrupt = RtGetInterruptContext(wdfInterrupt);
-    *interrupt->IMR = 0;
+    RtInterruptInitialize(RtGetInterruptContext(wdfInterrupt));
 
     TraceExit();
     return STATUS_SUCCESS;
@@ -138,55 +241,91 @@ EvtInterruptIsr(
 
     interrupt->NumInterrupts++;
 
-    USHORT interruptStatusRegister = *interrupt->ISR;
-    USHORT newWork = interruptStatusRegister & RtExpectedInterruptFlags;
 
     // Check if our hardware is active
-    if (interruptStatusRegister == RtInactiveInterrupt)
+    UINT16 isr0 = (UINT16)RtInterruptIsrGet(interrupt, 0);
+    if (isr0 == RtInactiveInterrupt)
     {
         interrupt->NumInterruptsDisabled++;
         return false;
     }
 
+    // Always returns 0 if ! RxQueues[N]
+    UINT32 isr1 = RtInterruptIsrGet(interrupt, 1);
+    UINT32 isr2 = RtInterruptIsrGet(interrupt, 2);
+    UINT32 isr3 = RtInterruptIsrGet(interrupt, 3);
+
+    // Acknowledge the interrupt, noop if value == 0
+    RtInterruptIsrPut(interrupt, 0, isr0);
+    RtInterruptIsrPut(interrupt, 1, isr1);
+    RtInterruptIsrPut(interrupt, 2, isr2);
+    RtInterruptIsrPut(interrupt, 3, isr3);
+
+    // Discard interrupt status we don't expect
+    isr0 &= RtExpectedInterruptFlags;
+    isr1 &= RtRxInterruptSecondaryFlags;
+    isr2 &= RtRxInterruptSecondaryFlags;
+    isr3 &= RtRxInterruptSecondaryFlags;
+
+    // Compress isr bits into a single integer
+    UINT32 isrPacked = ISR_PACK(isr0, isr1, isr2, isr3);
+
     // Check if the interrupt was ours
-    if (0 == newWork)
+    if (isrPacked == 0)
     {
         interrupt->NumInterruptsNotOurs++;
         return false;
     }
 
-    // Acknowledge the interrupt
-    *interrupt->ISR = interruptStatusRegister;
-
-    // queue up interrupt work
-    InterlockedOr16((SHORT volatile *)&interrupt->SavedIsr, newWork);
+    // Queue up interrupt work
+    InterlockedOr((LONG volatile *)&interrupt->SavedIsr, isrPacked);
 
     // Typically the interrupt lock would be acquired before modifying IMR, but
     // the Interrupt lock is already held for the length of the EvtInterruptIsr.
-    USHORT newImr = RtCalculateImr(interrupt);
+    UINT16 imr0 = RtCalculateImr(interrupt, 0);
+    UINT8 imr1 = (UINT8)RtCalculateImr(interrupt, 1);
+    UINT8 imr2 = (UINT8)RtCalculateImr(interrupt, 2);
+    UINT8 imr3 = (UINT8)RtCalculateImr(interrupt, 3);
 
     // Disable any signals for queued work.
     // The ISR fields that indicate the interrupt reason map directly to the
     // IMR fields that enable them, so the ISR can be simply masked off the IMR
     // to disable those fields that are being serviced.
-    newImr &= ~newWork;
+    imr0 &= ~isr0;
+    imr1 &= ~(UINT8)isr1;
+    imr2 &= ~(UINT8)isr2;
+    imr3 &= ~(UINT8)isr3;
 
     // always re-enable link change notifications
-    newImr |= RtDefaultInterruptFlags;
+    imr0 |= RtDefaultInterruptFlags;
 
-    *interrupt->IMR = newImr;
+    RtInterruptImrPut(interrupt, 0, imr0);
+    RtInterruptSecondaryImrUpdate(interrupt, 1, isr1, imr1);
+    RtInterruptSecondaryImrUpdate(interrupt, 2, isr2, imr2);
+    RtInterruptSecondaryImrUpdate(interrupt, 3, isr3, imr3);
 
-    if (newWork != 0)
-    {
-        if (newWork & RtTxInterruptFlags)
-            interrupt->NumTxInterrupts++;
-        if (newWork & RtRxInterruptFlags)
-            interrupt->NumRxInterrupts++;
+    if (isr0 & RtTxInterruptFlags)
+        interrupt->NumTxInterrupts++;
+    if (isr0 & RtRxInterruptFlags)
+        interrupt->NumRxInterrupts[0]++;
 
-        WdfInterruptQueueDpcForIsr(wdfInterrupt);
-    }
+    WdfInterruptQueueDpcForIsr(wdfInterrupt);
 
     return true;
+}
+
+static
+void
+RtRxNotify(
+    _In_ RT_INTERRUPT *interrupt,
+    _In_ ULONG queueId
+    )
+{
+    if (InterlockedExchange(&interrupt->RxNotifyArmed[queueId], false))
+    {
+        NetRxQueueNotifyMoreReceivedPacketsAvailable(
+            interrupt->Adapter->RxQueues[queueId]);
+    }
 }
 
 _Use_decl_annotations_
@@ -200,17 +339,32 @@ EvtInterruptDpc(
     RT_INTERRUPT *interrupt = RtGetInterruptContext(Interrupt);
     RT_ADAPTER *adapter = interrupt->Adapter;
 
-    USHORT newWork = InterlockedExchange16((SHORT volatile *)&interrupt->SavedIsr, 0);
+    UINT32 isrPacked = InterlockedExchange((LONG volatile *)&interrupt->SavedIsr, 0);
+    UINT16 isr0;
+    UINT8 isr1, isr2, isr3;
+    ISR_UNPACK(isrPacked, isr0, isr1, isr2, isr3);
 
-    if (newWork & RtRxInterruptFlags)
+    if (isr0 & RtRxInterruptFlags)
     {
-        if (InterlockedExchange(&interrupt->RxNotifyArmed, false))
-        {
-            NetRxQueueNotifyMoreReceivedPacketsAvailable(adapter->RxQueue);
-        }
+        RtRxNotify(interrupt, 0);
     }
 
-    if (newWork & RtTxInterruptFlags)
+    if (isr1 & RtRxInterruptSecondaryFlags)
+    {
+        RtRxNotify(interrupt, 1);
+    }
+
+    if (isr2 & RtRxInterruptSecondaryFlags)
+    {
+        RtRxNotify(interrupt, 2);
+    }
+
+    if (isr3 & RtRxInterruptSecondaryFlags)
+    {
+        RtRxNotify(interrupt, 3);
+    }
+
+    if (isr0 & RtTxInterruptFlags)
     {
         if (InterlockedExchange(&interrupt->TxNotifyArmed, false))
         {
@@ -218,7 +372,7 @@ EvtInterruptDpc(
         }
     }
 
-    if (newWork & ISRIMR_LINK_CHG)
+    if (isr0 & ISRIMR_LINK_CHG)
     {
         RtAdapterNotifyLinkChange(adapter);
     }

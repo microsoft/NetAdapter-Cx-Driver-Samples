@@ -103,8 +103,6 @@ RtRegisterScatterGatherDma(
 {
     TraceEntryRtAdapter(adapter);
 
-    WdfDeviceSetAlignmentRequirement(adapter->WdfDevice, FILE_256_BYTE_ALIGNMENT);
-
     WDF_DMA_ENABLER_CONFIG dmaEnablerConfig;
     WDF_DMA_ENABLER_CONFIG_INIT(&dmaEnablerConfig, WdfDmaProfileScatterGather64, RT_MAX_PACKET_SIZE);
     dmaEnablerConfig.Flags |= WDF_DMA_ENABLER_CONFIG_REQUIRE_SINGLE_TRANSFER;
@@ -154,8 +152,15 @@ RtInitializeHardware(
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
         RtGetResources(adapter, resourcesRaw, resourcesTranslated));
 
-    adapter->Interrupt->IMR = &adapter->CSRAddress->IMR;
-    adapter->Interrupt->ISR = &adapter->CSRAddress->ISR;
+    adapter->Interrupt->Imr[0].Address16 = &adapter->CSRAddress->IMR0;
+    adapter->Interrupt->Imr[1].Address8 = &adapter->CSRAddress->IMR1;
+    adapter->Interrupt->Imr[2].Address8 = &adapter->CSRAddress->IMR2;
+    adapter->Interrupt->Imr[3].Address8 = &adapter->CSRAddress->IMR3;
+
+    adapter->Interrupt->Isr[0].Address16 = &adapter->CSRAddress->ISR0;
+    adapter->Interrupt->Isr[1].Address8 = &adapter->CSRAddress->ISR1;
+    adapter->Interrupt->Isr[2].Address8 = &adapter->CSRAddress->ISR2;
+    adapter->Interrupt->Isr[3].Address8 = &adapter->CSRAddress->ISR3;
 
     if (!RtAdapterQueryChipType(adapter, &adapter->ChipType))
     {

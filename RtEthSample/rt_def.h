@@ -10,7 +10,7 @@
     ===========================================================================
 
     This file contains definitions for structures, registers, and constants for
-    Realtek Gigabit Ethernet network cards. This is all specific to Realtek 
+    Realtek Gigabit Ethernet network cards. This is all specific to Realtek
     hardware.
 
 --*/
@@ -81,14 +81,22 @@
 
 #pragma region Software Limits
 
+#define RT_MAX_FRAGMENT_SIZE 0x1000
+
 // max number of physical fragments supported per TCB
 #define RT_MAX_PHYS_BUF_COUNT 16
 
 // multicast list size
 #define RT_MAX_MCAST_LIST 32
 
+#define RT_MIN_RX_DESC 18
+#define RT_MAX_RX_DESC 1024
+
 #define RT_MIN_TCB 32
 #define RT_MAX_TCB 128
+
+// compact receive scaling indirection table
+#define RT_INDIRECTION_TABLE_SIZE 8
 
 #pragma endregion
 
@@ -131,6 +139,8 @@
     NET_ADAPTER_STATISTICS_RCV_NO_BUFFER         | \
     NET_ADAPTER_STATISTICS_TRANSMIT_QUEUE_LENGTH | \
     NET_ADAPTER_STATISTICS_GEN_STATISTICS)
+
+#define RT_NUMBER_OF_QUEUES 4
 
 #pragma endregion
 
@@ -221,7 +231,7 @@ typedef struct _RT_MAC
     UCHAR MulticastReg2;
     UCHAR MulticastReg1;
     UCHAR MulticastReg0;
-    
+
     // 10
     ULONG DTCCRLow;
     ULONG DTCCRHigh;
@@ -247,15 +257,15 @@ typedef struct _RT_MAC
     UCHAR RESV_39;
     UCHAR RESV_3A;
     UCHAR RESV_3B;
-    USHORT IMR;
-    USHORT  ISR;
+    UINT16 IMR0;
+    UINT16 ISR0;
 
     // 40
     ULONG  TCR;
     ULONG  RCR;
     ULONG  TimerCTR;
     ULONG REG_4C_4F;
-    
+
     // 50
     UCHAR CR9346;
     UCHAR CONFIG0;
@@ -281,28 +291,22 @@ typedef struct _RT_MAC
     UCHAR REG_6F;
 
     // 70
-    ULONG REG_70_73;
-    ULONG REG_74_77;
+    UINT32 ERIData;
+    UINT32 ERIAccess;
     ULONG REG_78_7B;
     ULONG REG_7C_7F;
 
     // 80
     ULONG REG_80_83;
-    ULONG REG_84_87;
+    UINT8 IMR1;
+    UINT8 IMR2;
+    UINT8 ISR1;
+    UINT8 ISR2;
     ULONG REG_88_8B;
     ULONG REG_8C_8F;
 
-    // 90
-    ULONG REG_90_93;
-    ULONG REG_94_97;
-    ULONG REG_98_9B;
-    ULONG REG_9C_9F;
-
-    // A0
-    ULONG REG_A0_A3;
-    ULONG REG_A4_A7;
-    ULONG REG_A8_AB;
-    ULONG REG_AC_AF;
+    // 90-0xaf, Rss_I_Table
+    UINT32 RssIndirectionTable[RT_INDIRECTION_TABLE_SIZE];
 
     // B0
     ULONG REG_B0_B3;
@@ -311,7 +315,9 @@ typedef struct _RT_MAC
     ULONG REG_BC_BF;
 
     // C0
-    ULONG REG_C0_C3;
+    UINT8 IMR3;
+    UINT8 ISR3;
+    UINT16 REG_C2_C3;
     ULONG REG_C4_C7;
     ULONG REG_C8_CB;
     ULONG REG_CC_CF;
@@ -339,8 +345,8 @@ typedef struct _RT_MAC
         UCHAR TxTimerNum;
     } IntMiti;
 
-    ULONG   RDSARLow;
-    ULONG   RDSARHigh;
+    UINT32 RDSARLow;
+    UINT32 RDSARHigh;
 
     struct
     {
@@ -402,11 +408,26 @@ static_assert(sizeof(RT_MAC) == 0x100, "Size of RT_MAC is specified by hardware"
 #define ISRIMR_TIME_INT BIT_14
 #define ISRIMR_SERR     BIT_15
 
+#define ISR123_ROK      BIT_0
+#define ISR123_RDU      BIT_1
+
+#define ISR_PACK(isr0, isr1, isr2, isr3) \
+    ((isr0) | ((isr1) << 16) | ((isr2) << 18) | ((isr3) << 20))
+
+#define ISR_UNPACK(isrPacked, isr0, isr1, isr2, isr3) \
+    do { \
+        (isr0) = (UINT16)(isrPacked); \
+        (isr1) = (UINT8)((isrPacked) >> 16); \
+        (isr2) = (UINT8)((isrPacked) >> 18); \
+        (isr3) = (UINT8)((isrPacked) >> 20); \
+    } while (false);
+
 // TCR: 0x40
 #define TCR_MXDMA_OFFSET 8
 #define TCR_IFG2         BIT_19
 #define TCR_IFG0         BIT_24      // Interframe Gap0
 #define TCR_IFG1         BIT_25      // Interframe Gap1
+#define TCR_BIT0         BIT_0
 
 // RCR: 0x44
 #define RCR_AAP     BIT_0 // accept all physical address
@@ -567,8 +588,21 @@ typedef enum _RT_PHY_REG
 #define TXS_IPV6RSS_TCPCS BIT_14
 #define TXS_IPV6RSS_IPV4CS BIT_13
 #define TXS_IPV6RSS_IS_IPV6 BIT_12
+#define TXS_IPV6RSS_GTSEN_IPV4 BIT_10
+#define TXS_IPV6RSS_GTSEN_IPV6 BIT_9
 #define TXS_IPV6RSS_TAGC BIT_1
+
+#define TXS_IPV4RSS_TCPHDR_OFFSET 2
 #define TXS_IPV6RSS_TCPHDR_OFFSET 2
 #define TXS_IPV6RSS_MSS_OFFSET 2
+
+// rss
+#define RSS_IPV4_TCP_ENABLE (1<<0)
+#define RSS_IPV4_ENABLE (1<<1)
+#define RSS_IPV6_TCP_ENABLE (1<<2)
+#define RSS_IPV6_ENABLE (1<<3)
+#define RSS_HASH_BITS_ENABLE (7<<8)
+#define RSS_MULTI_CPU_ENABLE (1<<16)
+#define RSS_MULTI_CPU_DISABLE (0)
 
 #pragma endregion

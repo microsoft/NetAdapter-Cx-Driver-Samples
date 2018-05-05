@@ -16,12 +16,14 @@
 #include "trace.h"
 #include "adapter.h"
 #include "interrupt.h"
+#include "gigamac.h"
 
 void
 RtUpdateRecvStats(
     _In_ RT_RXQUEUE *rx,
     _In_ RT_RX_DESC const *rxd,
-         ULONG length)
+         ULONG length
+    )
 {
     // Unlike for Tx, the hardware has counters for Broadcast, Multicast,
     // and Unicast inbound packets. So, we defer to the hardware counter for
@@ -44,12 +46,19 @@ RtUpdateRecvStats(
 static
 void
 RxFillRtl8111DChecksumInfo(
-    _In_    RT_ADAPTER const *adapter,
+    _In_    RT_RXQUEUE const *rx,
     _In_    RT_RX_DESC const *rxd,
-    _Inout_ NET_PACKET *packet)
+    _Inout_ NET_PACKET *packet
+    )
 {
+    RT_ADAPTER* adapter = rx->Adapter;
+    NET_PACKET_CHECKSUM* checksumInfo =
+        NetPacketGetPacketChecksum(
+            packet,
+            rx->ChecksumExtensionOffSet);
+
     packet->Layout.Layer2Type = NET_PACKET_LAYER2_TYPE_ETHERNET;
-    packet->Checksum.Layer2 =
+    checksumInfo->Layer2 =
         (rxd->RxDescDataIpv6Rss.status & RXS_CRC)
         ? NET_PACKET_RX_CHECKSUM_INVALID
         : NET_PACKET_RX_CHECKSUM_VALID;
@@ -65,7 +74,7 @@ RxFillRtl8111DChecksumInfo(
 
         if (adapter->IpRxHwChkSumv4)
         {
-            packet->Checksum.Layer3 =
+            checksumInfo->Layer3 =
                 (rxd->RxDescDataIpv6Rss.status & RXS_IPF)
                 ? NET_PACKET_RX_CHECKSUM_INVALID
                 : NET_PACKET_RX_CHECKSUM_VALID;
@@ -92,7 +101,7 @@ RxFillRtl8111DChecksumInfo(
         if ((isIpv4 && adapter->TcpRxHwChkSumv4) ||
             (isIpv6 && adapter->TcpRxHwChkSumv6))
         {
-            packet->Checksum.Layer4 =
+            checksumInfo->Layer4 =
                 (rxd->RxDescDataIpv6Rss.IpRssTava & RXS_IPV6RSS_TCPF)
                 ? NET_PACKET_RX_CHECKSUM_INVALID
                 : NET_PACKET_RX_CHECKSUM_VALID;
@@ -105,7 +114,7 @@ RxFillRtl8111DChecksumInfo(
         if ((isIpv4 && adapter->UdpRxHwChkSumv4) ||
             (isIpv6 && adapter->UdpRxHwChkSumv6))
         {
-            packet->Checksum.Layer4 =
+            checksumInfo->Layer4 =
                 (rxd->RxDescDataIpv6Rss.IpRssTava & RXS_IPV6RSS_UDPF)
                 ? NET_PACKET_RX_CHECKSUM_INVALID
                 : NET_PACKET_RX_CHECKSUM_VALID;
@@ -116,12 +125,19 @@ RxFillRtl8111DChecksumInfo(
 static
 void
 RxFillRtl8111EChecksumInfo(
-    _In_    RT_ADAPTER const *adapter,
+    _In_    RT_RXQUEUE const *rx,
     _In_    RT_RX_DESC const *rxd,
-    _Inout_ NET_PACKET *packet)
+    _Inout_ NET_PACKET *packet
+    )
 {
+    RT_ADAPTER* adapter = rx->Adapter;
+    NET_PACKET_CHECKSUM* checksumInfo =
+        NetPacketGetPacketChecksum(
+            packet,
+            rx->ChecksumExtensionOffSet);
+
     packet->Layout.Layer2Type = NET_PACKET_LAYER2_TYPE_ETHERNET;
-    packet->Checksum.Layer2 =
+    checksumInfo->Layer2 =
         (rxd->RxDescDataIpv6Rss.status & RXS_CRC)
         ? NET_PACKET_RX_CHECKSUM_INVALID
         : NET_PACKET_RX_CHECKSUM_VALID;
@@ -137,7 +153,7 @@ RxFillRtl8111EChecksumInfo(
 
         if (adapter->IpRxHwChkSumv4)
         {
-            packet->Checksum.Layer3 =
+            checksumInfo->Layer3 =
                 (rxd->RxDescDataIpv6Rss.status & RXS_IPF)
                 ? NET_PACKET_RX_CHECKSUM_INVALID
                 : NET_PACKET_RX_CHECKSUM_VALID;
@@ -164,7 +180,7 @@ RxFillRtl8111EChecksumInfo(
         if ((isIpv4 && adapter->TcpRxHwChkSumv4) ||
             (isIpv6 && adapter->TcpRxHwChkSumv6))
         {
-            packet->Checksum.Layer4 =
+            checksumInfo->Layer4 =
                 (rxd->RxDescDataIpv6Rss.TcpUdpFailure & TXS_TCPCS)
                 ? NET_PACKET_RX_CHECKSUM_INVALID
                 : NET_PACKET_RX_CHECKSUM_VALID;
@@ -177,7 +193,7 @@ RxFillRtl8111EChecksumInfo(
         if ((isIpv4 && adapter->UdpRxHwChkSumv4) ||
             (isIpv6 && adapter->UdpRxHwChkSumv6))
         {
-            packet->Checksum.Layer4 =
+            checksumInfo->Layer4 =
                 (rxd->RxDescDataIpv6Rss.TcpUdpFailure & TXS_UDPCS)
                 ? NET_PACKET_RX_CHECKSUM_INVALID
                 : NET_PACKET_RX_CHECKSUM_VALID;
@@ -188,56 +204,66 @@ RxFillRtl8111EChecksumInfo(
 static
 void
 RtFillRxChecksumInfo(
-    _In_    RT_ADAPTER const *adapter,
+    _In_    RT_RXQUEUE const *rx,
     _In_    RT_RX_DESC const *rxd,
-    _Inout_ NET_PACKET *packet)
+    _Inout_ NET_PACKET *packet
+    )
 {
-    switch (adapter->ChipType)
+    switch (rx->Adapter->ChipType)
     {
     case RTL8168D:
-        RxFillRtl8111DChecksumInfo(adapter, rxd, packet);
+        RxFillRtl8111DChecksumInfo(rx, rxd, packet);
         break;
     case RTL8168D_REV_C_REV_D:
     case RTL8168E:
-        RxFillRtl8111EChecksumInfo(adapter, rxd, packet);
+        RxFillRtl8111EChecksumInfo(rx, rxd, packet);
         break;
     }
 }
 
 void
 RxIndicateReceives(
-    _In_ RT_RXQUEUE *rx)
+    _In_ RT_RXQUEUE *rx
+    )
 {
-    NET_RING_BUFFER *rb = rx->RingBuffer;
+    PCNET_DATAPATH_DESCRIPTOR descriptor = rx->DatapathDescriptor;
+    NET_RING_BUFFER *rb = NET_DATAPATH_DESCRIPTOR_GET_PACKET_RING_BUFFER(descriptor);
 
     UINT32 i;
 
     for (i = rb->BeginIndex; i != rb->NextIndex; i = NetRingBufferIncrementIndex(rb, i))
     {
         RT_RX_DESC *rxd = &rx->RxdBase[i];
-        NET_PACKET *packet = NetRingBufferGetPacketAtIndex(rb, i);
+        NET_PACKET *packet = NetRingBufferGetPacketAtIndex(descriptor, i);
 
         if (0 != (rxd->RxDescDataIpv6Rss.status & RXS_OWN))
             break;
 
-        packet->Data.ValidLength = rxd->RxDescDataIpv6Rss.length - FRAME_CRC_SIZE;
-        packet->Data.Offset = 0;
+        auto fragment = NET_PACKET_GET_FRAGMENT(packet, descriptor, 0);
+        fragment->ValidLength = rxd->RxDescDataIpv6Rss.length - FRAME_CRC_SIZE;
+        fragment->Offset = 0;
 
-        packet->Data.LastFragmentOfFrame = true;
-        packet->Data.LastPacketOfChain = true;
-        
-        RtFillRxChecksumInfo(rx->Adapter, rxd, packet);
+        fragment->LastFragmentOfFrame = true;
 
-        RtUpdateRecvStats(rx, rxd, packet->Data.ValidLength);
+        if (rx->ChecksumExtensionOffSet != NET_PACKET_EXTENSION_INVALID_OFFSET)
+        {
+            // fill packetTcpChecksum
+            RtFillRxChecksumInfo(rx, rxd, packet);
+        }
+
+        RtUpdateRecvStats(rx, rxd, fragment->ValidLength);
     }
 
     rb->BeginIndex = i;
 }
 
 void
-RxPostBuffers(_In_ RT_RXQUEUE *rx)
+RxPostBuffers(
+    _In_ RT_RXQUEUE *rx
+    )
 {
-    NET_RING_BUFFER *rb = rx->RingBuffer;
+    PCNET_DATAPATH_DESCRIPTOR descriptor = rx->DatapathDescriptor;
+    NET_RING_BUFFER *rb = NET_DATAPATH_DESCRIPTOR_GET_PACKET_RING_BUFFER(descriptor);
 
     UINT32 initialIndex = rb->NextIndex;
 
@@ -246,13 +272,14 @@ RxPostBuffers(_In_ RT_RXQUEUE *rx)
         UINT32 index = rb->NextIndex;
         RT_RX_DESC *rxd = &rx->RxdBase[index];
 
-        NET_PACKET *packet = NetRingBufferAdvanceNextPacket(rb);
+        NET_PACKET *packet = NetRingBufferAdvanceNextPacket(descriptor);
         if (!packet)
             break;
 
-        rxd->BufferAddress = packet->Data.Mapping.DmaLogicalAddress;
+        auto fragment = NET_PACKET_GET_FRAGMENT(packet, descriptor, 0);
+        rxd->BufferAddress = fragment->Mapping.DmaLogicalAddress;
         rxd->RxDescDataIpv6Rss.TcpUdpFailure = 0;
-        rxd->RxDescDataIpv6Rss.length = packet->Data.Capacity;
+        rxd->RxDescDataIpv6Rss.length = fragment->Capacity;
         rxd->RxDescDataIpv6Rss.VLAN_TAG.Value = 0;
 
         MemoryBarrier();
@@ -268,7 +295,10 @@ RxPostBuffers(_In_ RT_RXQUEUE *rx)
 }
 
 NTSTATUS
-RtRxQueueInitialize(_In_ NETRXQUEUE rxQueue, _In_ RT_ADAPTER *adapter)
+RtRxQueueInitialize(
+    _In_ NETRXQUEUE rxQueue,
+    _In_ RT_ADAPTER *adapter
+    )
 {
     NTSTATUS status = STATUS_SUCCESS;
 
@@ -276,13 +306,11 @@ RtRxQueueInitialize(_In_ NETRXQUEUE rxQueue, _In_ RT_ADAPTER *adapter)
 
     rx->Adapter = adapter;
     rx->Interrupt = adapter->Interrupt;
-    rx->RingBuffer = NetRxQueueGetRingBuffer(rxQueue);
+    rx->DatapathDescriptor = NetRxQueueGetDatapathDescriptor(rxQueue);
 
     // allocate descriptors
     {
-        WdfDeviceSetAlignmentRequirement(adapter->WdfDevice, FILE_256_BYTE_ALIGNMENT);
-
-        SIZE_T rxdSize = rx->RingBuffer->NumberOfElements * sizeof(RT_RX_DESC);
+        SIZE_T rxdSize = NET_DATAPATH_DESCRIPTOR_GET_PACKET_RING_BUFFER(rx->DatapathDescriptor)->NumberOfElements * sizeof(RT_RX_DESC);
         GOTO_IF_NOT_NT_SUCCESS(Exit, status,
             WdfCommonBufferCreate(
                 rx->Adapter->DmaEnabler,
@@ -299,7 +327,9 @@ Exit:
 }
 
 ULONG
-RtConvertPacketFilterToRcr(NET_PACKET_FILTER_TYPES_FLAGS packetFilter)
+RtConvertPacketFilterToRcr(
+    _In_ NET_PACKET_FILTER_TYPES_FLAGS packetFilter
+    )
 {
     if (packetFilter & NET_PACKET_FILTER_TYPE_PROMISCUOUS)
     {
@@ -315,7 +345,9 @@ RtConvertPacketFilterToRcr(NET_PACKET_FILTER_TYPES_FLAGS packetFilter)
 
 _Use_decl_annotations_
 void
-RtAdapterUpdateRcr(_In_ RT_ADAPTER *adapter)
+RtAdapterUpdateRcr(
+    _In_ RT_ADAPTER *adapter
+    )
 {
     adapter->CSRAddress->RCR =
         (TCR_RCR_MXDMA_UNLIMITED << RCR_MXDMA_OFFSET) |
@@ -324,40 +356,48 @@ RtAdapterUpdateRcr(_In_ RT_ADAPTER *adapter)
 
 _Use_decl_annotations_
 void
-RtRxQueueStart(_In_ RT_RXQUEUE *rx)
+RtRxQueueStart(
+    _In_ RT_RXQUEUE *rx
+    )
 {
     RT_ADAPTER *adapter = rx->Adapter;
 
-    adapter->CSRAddress->RMS = RT_MAX_FRAME_SIZE;
-
-    USHORT cpcr = adapter->CSRAddress->CPCR;
-
-    if (adapter->IpRxHwChkSumv4 || adapter->TcpRxHwChkSumv4 || adapter->UdpRxHwChkSumv4)
+    bool first = true;
+    for (size_t i = 0; i < ARRAYSIZE(adapter->RxQueues); i++)
     {
-        cpcr |= CPCR_RX_CHECKSUM;
+        if (adapter->RxQueues[i])
+        {
+            first = false;
+        }
+    }
+
+    PHYSICAL_ADDRESS pa = WdfCommonBufferGetAlignedLogicalAddress(rx->RxdArray);
+    if (rx->QueueId == 0)
+    {
+        adapter->CSRAddress->RDSARLow = pa.LowPart;
+        adapter->CSRAddress->RDSARHigh = pa.HighPart;
     }
     else
     {
-        cpcr &= ~CPCR_RX_CHECKSUM;
+        GigaMacSetReceiveDescriptorStartAddress(adapter, rx->QueueId, pa);
     }
-
-    adapter->CSRAddress->CPCR = cpcr;
-
-    PHYSICAL_ADDRESS pa = WdfCommonBufferGetAlignedLogicalAddress(rx->RxdArray);
-
-    adapter->CSRAddress->RDSARLow = pa.LowPart;
-    adapter->CSRAddress->RDSARHigh = pa.HighPart;
 
     RtAdapterUpdateRcr(adapter);
 
-    adapter->CSRAddress->CmdReg |= CR_RE;
+    if (first)
+    {
+        adapter->CSRAddress->CmdReg |= CR_RE;
+    }
 }
 
 void
-RtRxQueueSetInterrupt(_In_ RT_RXQUEUE *rx, _In_ BOOLEAN notificationEnabled)
+RtRxQueueSetInterrupt(
+    _In_ RT_RXQUEUE *rx,
+    _In_ BOOLEAN notificationEnabled
+    )
 {
-    InterlockedExchange(&rx->Interrupt->RxNotifyArmed, notificationEnabled);
-    RtUpdateImr(rx->Interrupt);
+    InterlockedExchange(&rx->Interrupt->RxNotifyArmed[rx->QueueId], notificationEnabled);
+    RtUpdateImr(rx->Interrupt, rx->QueueId);
 
     if (!notificationEnabled)
         // block this thread until we're sure any outstanding DPCs are complete.
@@ -368,21 +408,33 @@ RtRxQueueSetInterrupt(_In_ RT_RXQUEUE *rx, _In_ BOOLEAN notificationEnabled)
 
 _Use_decl_annotations_
 void
-EvtRxQueueDestroy(_In_ WDFOBJECT rxQueue)
+EvtRxQueueDestroy(
+    _In_ WDFOBJECT rxQueue
+    )
 {
     TraceEntry(TraceLoggingPointer(rxQueue, "RxQueue"));
 
     RT_RXQUEUE *rx = RtGetRxQueueContext(rxQueue);
 
+    size_t count = 0;
+    for (size_t i = 0; i < ARRAYSIZE(rx->Adapter->RxQueues); i++)
+    {
+        if (rx->Adapter->RxQueues[i])
+        {
+            count++;
+        }
+    }
+
     WdfSpinLockAcquire(rx->Adapter->Lock); {
 
-        rx->Adapter->CSRAddress->CmdReg &= ~CR_RE;
+        if (count == 1)
+        {
+            rx->Adapter->CSRAddress->CmdReg &= ~CR_RE;
+        }
 
         RtRxQueueSetInterrupt(rx, false);
 
-        rx->Adapter->CSRAddress->CPCR &= ~(CPCR_RX_VLAN | CPCR_RX_CHECKSUM);
-
-        rx->Adapter->RxQueue = WDF_NO_HANDLE;
+        rx->Adapter->RxQueues[rx->QueueId] = WDF_NO_HANDLE;
 
     } WdfSpinLockRelease(rx->Adapter->Lock);
 
@@ -396,7 +448,8 @@ _Use_decl_annotations_
 VOID
 EvtRxQueueSetNotificationEnabled(
     _In_ NETRXQUEUE rxQueue,
-    _In_ BOOLEAN notificationEnabled)
+    _In_ BOOLEAN notificationEnabled
+    )
 {
     TraceEntry(TraceLoggingPointer(rxQueue), TraceLoggingBoolean(notificationEnabled));
 
@@ -410,7 +463,8 @@ EvtRxQueueSetNotificationEnabled(
 _Use_decl_annotations_
 void
 EvtRxQueueAdvance(
-    _In_ NETRXQUEUE rxQueue)
+    _In_ NETRXQUEUE rxQueue
+    )
 {
     TraceEntry(TraceLoggingPointer(rxQueue, "RxQueue"));
 
@@ -425,12 +479,12 @@ EvtRxQueueAdvance(
 _Use_decl_annotations_
 void
 EvtRxQueueCancel(
-    _In_ NETRXQUEUE rxQueue)
+    _In_ NETRXQUEUE rxQueue
+    )
 {
     TraceEntry(TraceLoggingPointer(rxQueue, "RxQueue"));
 
-    NET_RING_BUFFER *ringBuffer = NetRxQueueGetRingBuffer(rxQueue);
-    ringBuffer->BeginIndex = ringBuffer->NextIndex = ringBuffer->EndIndex;
+    NetRingBufferReturnAllPackets(NetRxQueueGetDatapathDescriptor(rxQueue));
 
     TraceExit();
 }

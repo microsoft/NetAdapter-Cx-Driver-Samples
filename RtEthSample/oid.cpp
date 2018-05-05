@@ -107,6 +107,26 @@ RtAdapterSetOffloadParameters(
         break;
     }
 
+    switch (offloadParameters->LsoV2IPv4)
+    {
+    case NDIS_OFFLOAD_PARAMETERS_LSOV2_DISABLED:
+        adapter->LSOv4 = RtLsoOffloadDisabled;
+        break;
+    case NDIS_OFFLOAD_PARAMETERS_LSOV2_ENABLED:
+        adapter->LSOv4 = RtLsoOffloadEnabled;
+        break;
+    }
+
+    switch (offloadParameters->LsoV2IPv6)
+    {
+    case NDIS_OFFLOAD_PARAMETERS_LSOV2_DISABLED:
+        adapter->LSOv6 = RtLsoOffloadDisabled;
+        break;
+    case NDIS_OFFLOAD_PARAMETERS_LSOV2_ENABLED:
+        adapter->LSOv6 = RtLsoOffloadEnabled;
+        break;
+    }
+
     RtAdapterUpdateEnabledChecksumOffloads(adapter);
     RtAdapterQueryOffloadConfiguration(adapter, offloadConfiguration);
 }
@@ -248,9 +268,9 @@ EvtNetRequestQueryUlong(
         break;
 
     case OID_GEN_RECEIVE_BUFFER_SPACE:
-        if (adapter->RxQueue)
+        if (adapter->RxQueues[0])
         {
-            result = RT_MAX_PACKET_SIZE * NetRxQueueGetRingBuffer(adapter->RxQueue)->NumberOfElements;
+            result = RT_MAX_PACKET_SIZE * NET_DATAPATH_DESCRIPTOR_GET_PACKET_RING_BUFFER(NetRxQueueGetDatapathDescriptor(adapter->RxQueues[0]))->NumberOfElements;
         }
         else
         {
@@ -491,17 +511,16 @@ EvtNetRequestQueryInterruptModeration(
     _In_ NETREQUEST Request,
     _Out_writes_bytes_(OutputBufferLength)
     PVOID OutputBuffer,
+    _Pre_satisfies_(OutputBufferLength >= NDIS_SIZEOF_INTERRUPT_MODERATION_PARAMETERS_REVISION_1)
     UINT OutputBufferLength)
 {
-    UNREFERENCED_PARAMETER((OutputBufferLength));
-
     NETADAPTER netAdapter = NetRequestQueueGetAdapter(RequestQueue);
     RT_ADAPTER *adapter = RtGetAdapterContext(netAdapter);
     NDIS_INTERRUPT_MODERATION_PARAMETERS *imParameters = (NDIS_INTERRUPT_MODERATION_PARAMETERS*)OutputBuffer;
 
     TraceEntryRtAdapter(adapter);
 
-    RtlZeroMemory(imParameters, NDIS_SIZEOF_INTERRUPT_MODERATION_PARAMETERS_REVISION_1);
+    RtlZeroMemory(imParameters, OutputBufferLength);
 
     imParameters->Header.Type = NDIS_OBJECT_TYPE_DEFAULT;
     imParameters->Header.Revision = NDIS_INTERRUPT_MODERATION_PARAMETERS_REVISION_1;

@@ -30,6 +30,15 @@ typedef enum _RT_CHKSUM_OFFLOAD : UCHAR
     RtChecksumOffloadTxRxEnabled = 3,
 } RT_CHKSUM_OFFLOAD;
 
+typedef enum _RT_LSO_OFFLOAD : UCHAR
+{
+    RtLsoOffloadDisabled = 0,
+    RtLsoOffloadEnabled = 1,
+} RT_LSO_OFFLOAD;
+
+#define RT_LSO_OFFLOAD_MAX_SIZE 64000
+#define RT_LSO_OFFLOAD_MIN_SEGMENT_COUNT 2
+
 typedef enum _RT_IM_MODE
 {
     RtInterruptModerationDisabled = 0,
@@ -81,7 +90,7 @@ typedef struct _RT_ADAPTER
 
     // Handle to default Tx and Rx Queues
     NETTXQUEUE TxQueue;
-    NETRXQUEUE RxQueue;
+    NETRXQUEUE RxQueues[RT_NUMBER_OF_QUEUES];
 
     // Pointer to interrupt object
     RT_INTERRUPT *Interrupt;
@@ -157,6 +166,7 @@ typedef struct _RT_ADAPTER
     RT_CHKSUM_OFFLOAD TCPChksumOffv4;
     RT_CHKSUM_OFFLOAD TCPChksumOffv6;
 
+    USHORT ReceiveBuffers;
     USHORT TransmitBuffers;
 
     BOOLEAN IpRxHwChkSumv4;
@@ -185,8 +195,16 @@ typedef struct _RT_ADAPTER
     // basic detection of concurrent EEPROM use
     bool EEPROMSupported;
     bool EEPROMInUse;
+    bool GigaMacInUse;
+
+    // ReceiveScaling
+    UINT32 RssIndirectionTable[RT_INDIRECTION_TABLE_SIZE];
 
     RT_FLOW_CONTROL FlowControl;
+
+    RT_LSO_OFFLOAD LSOv4;
+    RT_LSO_OFFLOAD LSOv6;
+    bool RssEnabled;
 } RT_ADAPTER;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(RT_ADAPTER, RtGetAdapterContext);

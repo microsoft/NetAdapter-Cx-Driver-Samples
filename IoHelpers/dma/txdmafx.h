@@ -104,15 +104,16 @@ Description:
 
 */
 {
-    NET_RING_BUFFER *ringBuffer = DmaFx->RingBuffer;
+    PCNET_DATAPATH_DESCRIPTOR descriptor = DmaFx->Descriptor;
+    NET_RING_BUFFER *ringBuffer = NET_DATAPATH_DESCRIPTOR_GET_PACKET_RING_BUFFER(descriptor);
 
     while (ringBuffer->BeginIndex != ringBuffer->NextIndex)
     {
-        NET_PACKET *packet = NetRingBufferGetPacketAtIndex(ringBuffer, ringBuffer->BeginIndex);
+        NET_PACKET *packet = NetRingBufferGetPacketAtIndex(descriptor, ringBuffer->BeginIndex);
 
         // If the packet is already marked as completed it is because we
         // failed to program its descriptors and we should just drop it
-        if (!packet->Data.Completed)
+        if (!NET_PACKET_GET_FRAGMENT(packet, descriptor, 0)->Completed)
         {
             NTSTATUS packetStatus = 
                 TX_DMA_FX_GET_PACKET_STATUS(
@@ -131,7 +132,8 @@ Description:
             {
                 // If we are using DMA APIs make sure we return the resources we
                 // acquired
-                TX_DMA_FX_PACKET_CONTEXT *fxPacketContext = _TxDmaFxGetPacketContextFromToken(packet, DmaFx->ContextToken);
+                
+                TX_DMA_FX_PACKET_CONTEXT *fxPacketContext = _TxDmaFxGetPacketContextFromToken(descriptor, packet, DmaFx->ContextToken);
 
                 // Even when using DMA APIs, we might still have a NULL SGL if
                 // the packet was bounced
@@ -146,10 +148,10 @@ Description:
                 }
             }            
 
-            if (_TX_DMA_FX_IS_PACKET_BOUNCED(packet))
+            if (_TX_DMA_FX_IS_PACKET_BOUNCED(descriptor, packet))
             {
                 DmaFx->BounceFreeIndex += 1;
-                _TX_DMA_FX_PACKET_CLEAR_BOUNCED_FLAG(packet);
+                _TX_DMA_FX_PACKET_CLEAR_BOUNCED_FLAG(descriptor, packet);
             }
         }
 
@@ -182,9 +184,9 @@ Description:
     ULONG numPacketsProgrammed = 0;
     NET_PACKET *netPacket;
 
-    NET_RING_BUFFER *ringBuffer = DmaFx->RingBuffer;
+    PCNET_DATAPATH_DESCRIPTOR descriptor = DmaFx->Descriptor;
 
-    while (NULL != (netPacket = NetRingBufferGetNextPacket(ringBuffer)))
+    while (NULL != (netPacket = NetRingBufferGetNextPacket(descriptor)))
     {
         NTSTATUS status = STATUS_SUCCESS;
 
@@ -209,7 +211,17 @@ Description:
                 case TxDmaTransmitInPlace:
                 {
                     status = _TxDmaFxMapAndTransmitPacket(DmaFx, netPacket);
-                    break;
+
+                    if (status != STATUS_BUFFER_TOO_SMALL)
+                    {
+                        break;
+                    }
+
+                    // If we could not map and transmit the packet using DMA 
+                    // because the SG list size was not enough (the packet was
+                    // too fragmented) we should try to bounce the buffer 
+                    // before dropping it
+                    __fallthrough;
                 }
                 case TxDmaTransmitAfterBouncing:
                 {
@@ -235,9 +247,9 @@ Description:
         if (status == STATUS_SUCCESS)
             numPacketsProgrammed++;
         else
-            netPacket->Data.Completed = TRUE;
+            NET_PACKET_GET_FRAGMENT(netPacket, descriptor, 0)->Completed = TRUE;
 
-        NetRingBufferAdvanceNextPacket(ringBuffer);
+        NetRingBufferAdvanceNextPacket(descriptor);
     }
 
     return numPacketsProgrammed;
@@ -363,7 +375,7 @@ Arguments:
     TxDmaFx *dmaFx = _TxDmaFxGetContext(txQueue);
 
     dmaFx->QueueHandle = txQueue;
-    dmaFx->RingBuffer = NetTxQueueGetRingBuffer(txQueue);
+    dmaFx->Descriptor = NetTxQueueGetDatapathDescriptor(txQueue);
     dmaFx->Config = *Configuration;
 
     if(!dmaBypass)

@@ -101,6 +101,8 @@ EvtDeviceD0Entry(
         NetAdapterSetCurrentLinkState(adapter->NetAdapter, &linkState);
     }
 
+    adapter->CSRAddress->RMS = RT_MAX_FRAME_SIZE;
+
     TraceExit();
     return STATUS_SUCCESS;
 }
@@ -112,12 +114,12 @@ EvtDeviceD0Exit(
     _In_ WDF_POWER_DEVICE_STATE TargetState
 )
 {
+    RT_ADAPTER *adapter = RtGetDeviceContext(Device)->Adapter;
+
     TraceEntry();
 
     if (TargetState != WdfPowerDeviceD3Final)
     {
-        RT_ADAPTER *adapter = RtGetDeviceContext(Device)->Adapter;
-
         NET_ADAPTER_LINK_STATE linkState;
         NET_ADAPTER_LINK_STATE_INIT(
             &linkState,
@@ -130,8 +132,8 @@ EvtDeviceD0Exit(
         NetAdapterSetCurrentLinkState(adapter->NetAdapter, &linkState);
 
         // acknowledge interrupt
-        USHORT isr = adapter->CSRAddress->ISR;
-        adapter->CSRAddress->ISR = isr;
+        USHORT isr = adapter->CSRAddress->ISR0;
+        adapter->CSRAddress->ISR0 = isr;
     }
 
     TraceExit();

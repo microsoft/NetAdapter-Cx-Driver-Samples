@@ -11,6 +11,7 @@
 
 #include "precomp.h"
 
+#include "eeprom.h"
 #include "adapter.h"
 
 // RTL8168D <-> 93C46 EEPROM
@@ -178,6 +179,8 @@ RtAdapterReadEepromId(
 
     if (idD0 == 0 && idD1 == 0)
     {
+        adapter->EEPROMInUse = false;
+
         return false;
     }
 

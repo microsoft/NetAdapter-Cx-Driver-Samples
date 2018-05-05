@@ -13,8 +13,8 @@
 
 #include <ntddk.h>
 #include <wdf.h>
-#include <netadaptercx.h>
 #include <ntintsafe.h>
+#include <netadaptercx.h>
 #include <netiodef.h>
 
 // Avoid putting user headers into the precomp header.
@@ -25,3 +25,4 @@
 
 #include "forward.h"
 #include "rt_def.h"
+

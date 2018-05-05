@@ -32,6 +32,7 @@ typedef struct _RT_TXQUEUE
     RT_ADAPTER *Adapter;
     RT_INTERRUPT *Interrupt;
 
+    PCNET_DATAPATH_DESCRIPTOR DatapathDescriptor;
     NET_PACKET_CONTEXT_TOKEN *TcbToken;
 
     // descriptor information
@@ -43,6 +44,8 @@ typedef struct _RT_TXQUEUE
 
     UCHAR volatile *TPPoll;
 
+    size_t ChecksumExtensionOffSet;
+    size_t LsoExtensionOffset;
 } RT_TXQUEUE;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(RT_TXQUEUE, RtGetTxQueueContext);
@@ -54,7 +57,8 @@ WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(RT_TXQUEUE, RtGetTxQueueContext);
 
 typedef struct _RT_TCB
 {
-    RT_TX_DESC *LastTxDesc;
+    USHORT FirstTxDescIdx;
+    ULONG NumTxDesc;
 } RT_TCB;
 
 NET_PACKET_DECLARE_CONTEXT_TYPE_WITH_NAME(RT_TCB, GetTcbFromPacket);
