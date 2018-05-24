@@ -248,6 +248,9 @@ RtInitializeHardware(
 
     NetAdapterSetCurrentLinkState(adapter->NetAdapter, &linkState);
 
+    GOTO_IF_NOT_NT_SUCCESS(Exit, status,
+        RtAdapterStart(adapter));
+
 Exit:
     TraceExitResult(status);
     return status;
@@ -257,6 +260,12 @@ void
 RtReleaseHardware(
     _In_ RT_ADAPTER *adapter)
 {
+    if (adapter->HwTallyMemAlloc)
+    {
+        WdfObjectDelete(adapter->HwTallyMemAlloc);
+        adapter->HwTallyMemAlloc = WDF_NO_HANDLE;
+    }
+
     if (adapter->CSRAddress)
     {
         MmUnmapIoSpace(

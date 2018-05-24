@@ -86,7 +86,6 @@ Return Value:
     adapter->OffloadEncapsulation.Header.Type = NDIS_OBJECT_TYPE_OFFLOAD_ENCAPSULATION;
 
     adapter->EEPROMInUse = false;
-    adapter->GigaMacInUse = false;
 
     //spinlock
     WDF_OBJECT_ATTRIBUTES  attributes;
@@ -350,21 +349,15 @@ EvtAdapterCreateTxQueue(
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&txAttributes, RT_TXQUEUE);
 
     txAttributes.EvtDestroyCallback = EvtTxQueueDestroy;
-    
-    NET_TX_DMA_QUEUE_CONFIG sgConfig;
-    NET_TX_DMA_QUEUE_CONFIG_INIT(
-        &sgConfig,
-        adapter->WdfDevice,
-        adapter->DmaEnabler,
-        RT_MAX_PACKET_SIZE,
+
+    NET_PACKET_QUEUE_CONFIG txConfig;
+    NET_PACKET_QUEUE_CONFIG_INIT(
+        &txConfig,
+        EvtTxQueueAdvance,
         EvtTxQueueSetNotificationEnabled,
         EvtTxQueueCancel);
-
-    // LSO goes to 64K payload header + extra
-    sgConfig.MaximumPacketSize = RT_MAX_FRAGMENT_SIZE * RT_MAX_PHYS_BUF_COUNT;
-
-    sgConfig.MaximumScatterGatherElements = RT_MAX_PHYS_BUF_COUNT;
-    sgConfig.AllowDmaBypass = TRUE;
+    txConfig.EvtStart = EvtTxQueueStart;
+    txConfig.EvtStop = EvtTxQueueStop;
 
     NET_PACKET_CONTEXT_ATTRIBUTES contextAttributes;
     NET_PACKET_CONTEXT_ATTRIBUTES_INIT_TYPE(&contextAttributes, RT_TCB);
@@ -372,12 +365,12 @@ EvtAdapterCreateTxQueue(
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
         NetTxQueueInitAddPacketContextAttributes(txQueueInit, &contextAttributes));
 
-    NETTXQUEUE txQueue;
+    NETPACKETQUEUE txQueue;
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
-        NetTxDmaQueueCreate(
+        NetTxQueueCreate(
             txQueueInit,
             &txAttributes,
-            &sgConfig,
+            &txConfig,
             &txQueue));
 
 #pragma endregion
@@ -407,13 +400,6 @@ EvtAdapterCreateTxQueue(
 
 #pragma endregion
 
-    WdfSpinLockAcquire(adapter->Lock); {
-
-        RtTxQueueStart(tx);
-        adapter->TxQueue = txQueue;
-
-    } WdfSpinLockRelease(adapter->Lock);
-
 Exit:
     TraceExitResult(status);
 
@@ -440,15 +426,17 @@ EvtAdapterCreateRxQueue(
 
     rxAttributes.EvtDestroyCallback = EvtRxQueueDestroy;
 
-    NET_RXQUEUE_CONFIG rxConfig;
-    NET_RXQUEUE_CONFIG_INIT(
+    NET_PACKET_QUEUE_CONFIG rxConfig;
+    NET_PACKET_QUEUE_CONFIG_INIT(
         &rxConfig,
         EvtRxQueueAdvance,
         EvtRxQueueSetNotificationEnabled,
         EvtRxQueueCancel);
+    rxConfig.EvtStart = EvtRxQueueStart;
+    rxConfig.EvtStop = EvtRxQueueStop;
 
     const ULONG queueId = NetRxQueueInitGetQueueId(rxQueueInit);
-    NETRXQUEUE rxQueue;
+    NETPACKETQUEUE rxQueue;
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
         NetRxQueueCreate(rxQueueInit, &rxAttributes, &rxConfig, &rxQueue));
 
@@ -471,16 +459,6 @@ EvtAdapterCreateRxQueue(
 
 #pragma endregion
 
-    WdfSpinLockAcquire(adapter->Lock); {
-
-        // Starting the receive queue must be synchronized with any OIDs that
-        // modify the receive queue's behavior.
-
-        RtRxQueueStart(RtGetRxQueueContext(rxQueue));
-        adapter->RxQueues[rx->QueueId] = rxQueue;
-
-    } WdfSpinLockRelease(adapter->Lock);
-
 Exit:
     TraceExitResult(status);
 
@@ -491,26 +469,26 @@ static
 NTSTATUS
 RtReceiveScalingEnable(
     _In_ RT_ADAPTER *adapter,
-    _In_ const NET_ADAPTER_RECEIVE_SCALING_PROTOCOL_TYPE *protocols
+    _In_ NET_ADAPTER_RECEIVE_SCALING_PROTOCOL_TYPE protocols
     )
 {
     UINT32 controlBitsEnable = RSS_MULTI_CPU_ENABLE | RSS_HASH_BITS_ENABLE;
 
-    if (*protocols & NetAdapterReceiveScalingProtocolTypeIPv4)
+    if (protocols & NetAdapterReceiveScalingProtocolTypeIPv4)
     {
         controlBitsEnable |= RSS_IPV4_ENABLE;
 
-        if (*protocols & NetAdapterReceiveScalingProtocolTypeTcp)
+        if (protocols & NetAdapterReceiveScalingProtocolTypeTcp)
         {
             controlBitsEnable |= RSS_IPV4_TCP_ENABLE;
         }
     }
 
-    if (*protocols & NetAdapterReceiveScalingProtocolTypeIPv6)
+    if (protocols & NetAdapterReceiveScalingProtocolTypeIPv6)
     {
         controlBitsEnable |= RSS_IPV6_ENABLE;
 
-        if (*protocols & NetAdapterReceiveScalingProtocolTypeTcp)
+        if (protocols & NetAdapterReceiveScalingProtocolTypeTcp)
         {
             controlBitsEnable |= RSS_IPV6_TCP_ENABLE;
         }
@@ -535,7 +513,7 @@ RtReceiveScalingSetHashSecretKey(
     )
 {
     const UINT32 * key = (const UINT32 *)hashSecretKey->Key;
-    const size_t keySize = hashSecretKey->Count / sizeof(*key);
+    const size_t keySize = hashSecretKey->Length / sizeof(*key);
     if (! GigaMacRssSetHashSecretKey(adapter, key, keySize))
     {
         WdfDeviceSetFailed(adapter->WdfDevice, WdfDeviceFailedAttemptRestart);
@@ -548,19 +526,20 @@ RtReceiveScalingSetHashSecretKey(
 static
 NTSTATUS
 EvtAdapterReceiveScalingEnable(
-    _In_ NETADAPTER netAdapter
+    _In_ NETADAPTER netAdapter,
+    _In_ NET_ADAPTER_RECEIVE_SCALING_HASH_TYPE hashType,
+    _In_ NET_ADAPTER_RECEIVE_SCALING_PROTOCOL_TYPE protocolType
     )
 {
+    UNREFERENCED_PARAMETER(hashType);
+
     TraceEntryNetAdapter(netAdapter);
 
     NTSTATUS status = STATUS_SUCCESS;
     RT_ADAPTER *adapter = RtGetAdapterContext(netAdapter);
 
-    const NET_ADAPTER_RECEIVE_SCALING_PROTOCOL_TYPE protocols =
-        NetAdapterGetReceiveScalingProtocolTypes(netAdapter);
-
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
-        RtReceiveScalingEnable(adapter, &protocols));
+        RtReceiveScalingEnable(adapter, protocolType));
 
 Exit:
     TraceExitResult(status);
@@ -601,7 +580,7 @@ EvtAdapterReceiveScalingSetIndirectionEntries(
 {
     RT_ADAPTER * adapter = RtGetAdapterContext(netAdapter);
 
-    for (size_t i = 0; i < indirectionEntries->Count; i++)
+    for (size_t i = 0; i < indirectionEntries->Length; i++)
     {
         const ULONG queueId = RtGetRxQueueContext(indirectionEntries->Entries[i].Queue)->QueueId;
         const UINT32 index = indirectionEntries->Entries[i].Index;
@@ -1075,11 +1054,20 @@ RtAdapterSetDatapathCapabilities(
     _In_ RT_ADAPTER const *adapter
     )
 {
+    NET_ADAPTER_DMA_CAPABILITIES txDmaCapabilities;
+    NET_ADAPTER_DMA_CAPABILITIES_INIT(&txDmaCapabilities, adapter->DmaEnabler);
+
+    txDmaCapabilities.MaximumNumberOfPhysicalFragments = RT_MAX_PHYS_BUF_COUNT;
+
     NET_ADAPTER_TX_CAPABILITIES txCapabilities;
-    NET_ADAPTER_TX_CAPABILITIES_INIT(
-        &txCapabilities, 
-        RT_MAX_PACKET_SIZE, 
+    NET_ADAPTER_TX_CAPABILITIES_INIT_FOR_DMA(
+        &txCapabilities,
+        &txDmaCapabilities,
+        RT_MAX_FRAGMENT_SIZE,
         1);
+
+    // LSO goes to 64K payload header + extra
+    //sgConfig.MaximumPacketSize = RT_MAX_FRAGMENT_SIZE * RT_MAX_PHYS_BUF_COUNT;
 
     txCapabilities.FragmentRingNumberOfElementsHint = adapter->NumTcb * RT_MAX_PHYS_BUF_COUNT;
 
@@ -1102,15 +1090,13 @@ RtAdapterSetDatapathCapabilities(
 
 _Use_decl_annotations_
 NTSTATUS
-EvtAdapterSetCapabilities(
-    _In_ NETADAPTER netAdapter
+RtAdapterStart(
+    RT_ADAPTER *adapter
     )
 {
-    TraceEntryNetAdapter(netAdapter);
+    TraceEntryNetAdapter(adapter->NetAdapter);
 
     NTSTATUS status = STATUS_SUCCESS;
-
-    RT_ADAPTER *adapter = RtGetAdapterContext(netAdapter);
 
     RtAdapterSetLinkLayerCapabilities(adapter);
 
@@ -1131,7 +1117,7 @@ EvtAdapterSetCapabilities(
     // Register checksum extension.
     GOTO_IF_NOT_NT_SUCCESS(
         Exit, status,
-        NetAdapterRegisterPacketExtension(netAdapter, &extension));
+        NetAdapterRegisterPacketExtension(adapter->NetAdapter, &extension));
 
     NET_PACKET_EXTENSION_INIT(
         &extension,
@@ -1143,7 +1129,7 @@ EvtAdapterSetCapabilities(
     // Register LSO extension.
     GOTO_IF_NOT_NT_SUCCESS(
         Exit, status,
-        NetAdapterRegisterPacketExtension(netAdapter, &extension));
+        NetAdapterRegisterPacketExtension(adapter->NetAdapter, &extension));
 
     NDIS_MINIPORT_ADAPTER_OFFLOAD_ATTRIBUTES offloadAttributes;
     RtlZeroMemory(&offloadAttributes, sizeof(NDIS_MINIPORT_ADAPTER_OFFLOAD_ATTRIBUTES));
@@ -1175,6 +1161,10 @@ EvtAdapterSetCapabilities(
         }
         goto Exit;
     }
+
+    GOTO_IF_NOT_NT_SUCCESS(
+        Exit, status,
+        NetAdapterStart(adapter->NetAdapter));
 
 Exit:
     TraceExitResult(status);

@@ -82,6 +82,8 @@ EvtDriverDeviceAdd(
     TraceEntry();
 
     NTSTATUS status = STATUS_SUCCESS;
+    PNETADAPTER_INIT adapterInit = nullptr;
+
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
         NetAdapterDeviceInitConfig(deviceInit));
 
@@ -122,19 +124,26 @@ EvtDriverDeviceAdd(
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
         WdfDeviceAssignSxWakeSettings(wdfDevice, &wakeSettings));
 
-    NET_ADAPTER_CONFIG adapterConfig;
-    NET_ADAPTER_CONFIG_INIT(
-        &adapterConfig,
-        EvtAdapterSetCapabilities,
+    adapterInit = NetDefaultAdapterInitAllocate(wdfDevice);
+
+    GOTO_WITH_INSUFFICIENT_RESOURCES_IF_NULL(Exit, status, adapterInit);
+
+    NET_ADAPTER_DATAPATH_CALLBACKS datapathCallbacks;
+    NET_ADAPTER_DATAPATH_CALLBACKS_INIT(
+        &datapathCallbacks,
         EvtAdapterCreateTxQueue,
         EvtAdapterCreateRxQueue);
+
+    NetAdapterInitSetDatapathCallbacks(
+        adapterInit,
+        &datapathCallbacks);
 
     WDF_OBJECT_ATTRIBUTES adapterAttributes;
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&adapterAttributes, RT_ADAPTER);
 
     NETADAPTER netAdapter;
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
-        NetAdapterCreate(wdfDevice, &adapterAttributes, &adapterConfig, &netAdapter));
+        NetAdapterCreate(adapterInit, &adapterAttributes, &netAdapter));
 
     RT_ADAPTER *adapter = RtGetAdapterContext(netAdapter);
     RT_DEVICE *device = RtGetDeviceContext(wdfDevice);
@@ -151,6 +160,11 @@ EvtDriverDeviceAdd(
         RtInterruptCreate(wdfDevice, adapter, &adapter->Interrupt));
 
 Exit:
+    if (adapterInit != nullptr)
+    {
+        NetAdapterInitFree(adapterInit);
+    }
+
     TraceExitResult(status);
 
     return status;

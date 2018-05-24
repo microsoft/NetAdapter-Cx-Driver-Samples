@@ -80,17 +80,15 @@ Return Value:
     NTSTATUS status = STATUS_SUCCESS;
 
     // Allocate memory for Tally counter
-    WDFCOMMONBUFFER HwTallyMemAlloc = WDF_NO_HANDLE;
-
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
         WdfCommonBufferCreate(
             adapter->DmaEnabler,
             sizeof(RT_TALLY),
             WDF_NO_OBJECT_ATTRIBUTES,
-            &HwTallyMemAlloc));
+            &adapter->HwTallyMemAlloc));
 
-    adapter->GTally = static_cast<RT_TALLY*>(WdfCommonBufferGetAlignedVirtualAddress(HwTallyMemAlloc));
-    adapter->TallyPhy = WdfCommonBufferGetAlignedLogicalAddress(HwTallyMemAlloc);
+    adapter->GTally = static_cast<RT_TALLY*>(WdfCommonBufferGetAlignedVirtualAddress(adapter->HwTallyMemAlloc));
+    adapter->TallyPhy = WdfCommonBufferGetAlignedLogicalAddress(adapter->HwTallyMemAlloc);
 
     RtlZeroMemory(adapter->GTally, sizeof(*adapter->GTally));
 

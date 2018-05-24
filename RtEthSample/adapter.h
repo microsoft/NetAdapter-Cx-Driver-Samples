@@ -89,8 +89,8 @@ typedef struct _RT_ADAPTER
     WDFDEVICE WdfDevice;
 
     // Handle to default Tx and Rx Queues
-    NETTXQUEUE TxQueue;
-    NETRXQUEUE RxQueues[RT_NUMBER_OF_QUEUES];
+    NETPACKETQUEUE TxQueue;
+    NETPACKETQUEUE RxQueues[RT_NUMBER_OF_QUEUES];
 
     // Pointer to interrupt object
     RT_INTERRUPT *Interrupt;
@@ -151,6 +151,7 @@ typedef struct _RT_ADAPTER
 
     WDFDMAENABLER DmaEnabler;
 
+    WDFCOMMONBUFFER HwTallyMemAlloc;
     PHYSICAL_ADDRESS TallyPhy;
     RT_TALLY *GTally;
 
@@ -195,7 +196,6 @@ typedef struct _RT_ADAPTER
     // basic detection of concurrent EEPROM use
     bool EEPROMSupported;
     bool EEPROMInUse;
-    bool GigaMacInUse;
 
     // ReceiveScaling
     UINT32 RssIndirectionTable[RT_INDIRECTION_TABLE_SIZE];
@@ -209,7 +209,6 @@ typedef struct _RT_ADAPTER
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(RT_ADAPTER, RtGetAdapterContext);
 
-EVT_NET_ADAPTER_SET_CAPABILITIES EvtAdapterSetCapabilities;
 EVT_NET_ADAPTER_CREATE_TXQUEUE   EvtAdapterCreateTxQueue;
 EVT_NET_ADAPTER_CREATE_RXQUEUE   EvtAdapterCreateRxQueue;
 
@@ -239,6 +238,10 @@ RtInitializeAdapterContext(
     _In_ RT_ADAPTER *adapter,
     _In_ WDFDEVICE device,
     _In_ NETADAPTER netAdapter);
+
+NTSTATUS
+RtAdapterStart(
+    _In_ RT_ADAPTER *adapter);
 
 void RtAdapterUpdateInterruptModeration(_In_ RT_ADAPTER *adapter);
 
