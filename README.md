@@ -7,7 +7,6 @@ This repository hosts code you can include into your own NIC driver, based on Ne
 
 # Contents
 - [RTL8168D Sample Driver](RtEthSample/README.md)
-- [DMA IOHelper](IoHelpers/dma)
 
 ## The RTL8168D Sample Driver
 
