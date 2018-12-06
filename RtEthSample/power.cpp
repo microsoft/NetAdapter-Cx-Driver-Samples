@@ -80,7 +80,7 @@ EvtDeviceD0Entry(
 
     // Interrupts will be fully enabled in EvtInterruptEnable
     RtInterruptInitialize(adapter->Interrupt);
-    RtAdapterUpdateEnabledChecksumOffloads(adapter);
+    RtAdapterUpdateHardwareChecksum(adapter);
     RtAdapterUpdateInterruptModeration(adapter);
 
     if (previousState != WdfPowerDeviceD3Final)

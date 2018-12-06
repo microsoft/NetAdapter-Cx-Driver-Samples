@@ -19,117 +19,6 @@
 #include "rxqueue.h"
 #include "link.h"
 
-_Requires_lock_held_(adapter->Lock)
-void
-RtAdapterSetOffloadParameters(
-    _In_  RT_ADAPTER *adapter,
-    _In_  NDIS_OFFLOAD_PARAMETERS *offloadParameters,
-    _Out_ NDIS_OFFLOAD *offloadConfiguration
-)
-{
-    switch (offloadParameters->IPv4Checksum)
-    {
-    case NDIS_OFFLOAD_PARAMETERS_TX_RX_DISABLED:
-        adapter->IPChksumOffv4 = RtChecksumOffloadDisabled;
-        break;
-    case NDIS_OFFLOAD_PARAMETERS_TX_ENABLED_RX_DISABLED:
-        adapter->IPChksumOffv4 = RtChecksumOffloadTxEnabled;
-        break;
-    case NDIS_OFFLOAD_PARAMETERS_RX_ENABLED_TX_DISABLED:
-        adapter->IPChksumOffv4 = RtChecksumOffloadRxEnabled;
-        break;
-    case NDIS_OFFLOAD_PARAMETERS_TX_RX_ENABLED:
-        adapter->IPChksumOffv4 = RtChecksumOffloadTxRxEnabled;
-        break;
-    }
-
-    switch (offloadParameters->TCPIPv4Checksum)
-    {
-    case NDIS_OFFLOAD_PARAMETERS_TX_RX_DISABLED:
-        adapter->TCPChksumOffv4 = RtChecksumOffloadDisabled;
-        break;
-    case NDIS_OFFLOAD_PARAMETERS_TX_ENABLED_RX_DISABLED:
-        adapter->TCPChksumOffv4 = RtChecksumOffloadTxEnabled;
-        break;
-    case NDIS_OFFLOAD_PARAMETERS_RX_ENABLED_TX_DISABLED:
-        adapter->TCPChksumOffv4 = RtChecksumOffloadRxEnabled;
-        break;
-    case NDIS_OFFLOAD_PARAMETERS_TX_RX_ENABLED:
-        adapter->TCPChksumOffv4 = RtChecksumOffloadTxRxEnabled;
-        break;
-    }
-
-    switch (offloadParameters->UDPIPv4Checksum)
-    {
-    case NDIS_OFFLOAD_PARAMETERS_TX_RX_DISABLED:
-        adapter->UDPChksumOffv4 = RtChecksumOffloadDisabled;
-        break;
-    case NDIS_OFFLOAD_PARAMETERS_TX_ENABLED_RX_DISABLED:
-        adapter->UDPChksumOffv4 = RtChecksumOffloadTxEnabled;
-        break;
-    case NDIS_OFFLOAD_PARAMETERS_RX_ENABLED_TX_DISABLED:
-        adapter->UDPChksumOffv4 = RtChecksumOffloadRxEnabled;
-        break;
-    case NDIS_OFFLOAD_PARAMETERS_TX_RX_ENABLED:
-        adapter->UDPChksumOffv4 = RtChecksumOffloadTxRxEnabled;
-        break;
-    }
-
-    switch (offloadParameters->TCPIPv6Checksum)
-    {
-    case NDIS_OFFLOAD_PARAMETERS_TX_RX_DISABLED:
-        adapter->TCPChksumOffv6 = RtChecksumOffloadDisabled;
-        break;
-    case NDIS_OFFLOAD_PARAMETERS_TX_ENABLED_RX_DISABLED:
-        adapter->TCPChksumOffv6 = RtChecksumOffloadTxEnabled;
-        break;
-    case NDIS_OFFLOAD_PARAMETERS_RX_ENABLED_TX_DISABLED:
-        adapter->TCPChksumOffv6 = RtChecksumOffloadRxEnabled;
-        break;
-    case NDIS_OFFLOAD_PARAMETERS_TX_RX_ENABLED:
-        adapter->TCPChksumOffv6 = RtChecksumOffloadTxRxEnabled;
-        break;
-    }
-
-    switch (offloadParameters->UDPIPv6Checksum)
-    {
-    case NDIS_OFFLOAD_PARAMETERS_TX_RX_DISABLED:
-        adapter->UDPChksumOffv6 = RtChecksumOffloadDisabled;
-        break;
-    case NDIS_OFFLOAD_PARAMETERS_TX_ENABLED_RX_DISABLED:
-        adapter->UDPChksumOffv6 = RtChecksumOffloadTxEnabled;
-        break;
-    case NDIS_OFFLOAD_PARAMETERS_RX_ENABLED_TX_DISABLED:
-        adapter->UDPChksumOffv6 = RtChecksumOffloadRxEnabled;
-        break;
-    case NDIS_OFFLOAD_PARAMETERS_TX_RX_ENABLED:
-        adapter->UDPChksumOffv6 = RtChecksumOffloadTxRxEnabled;
-        break;
-    }
-
-    switch (offloadParameters->LsoV2IPv4)
-    {
-    case NDIS_OFFLOAD_PARAMETERS_LSOV2_DISABLED:
-        adapter->LSOv4 = RtLsoOffloadDisabled;
-        break;
-    case NDIS_OFFLOAD_PARAMETERS_LSOV2_ENABLED:
-        adapter->LSOv4 = RtLsoOffloadEnabled;
-        break;
-    }
-
-    switch (offloadParameters->LsoV2IPv6)
-    {
-    case NDIS_OFFLOAD_PARAMETERS_LSOV2_DISABLED:
-        adapter->LSOv6 = RtLsoOffloadDisabled;
-        break;
-    case NDIS_OFFLOAD_PARAMETERS_LSOV2_ENABLED:
-        adapter->LSOv6 = RtLsoOffloadEnabled;
-        break;
-    }
-
-    RtAdapterUpdateEnabledChecksumOffloads(adapter);
-    RtAdapterQueryOffloadConfiguration(adapter, offloadConfiguration);
-}
 
 #define RTK_NIC_GBE_PCIE_ADAPTER_NAME "Realtek PCIe GBE Family Controller"
 
@@ -429,51 +318,6 @@ Exit:
 }
 
 void
-EvtNetRequestSetTcpOffloadParameters(
-    _In_ NETREQUESTQUEUE RequestQueue,
-    _In_ NETREQUEST      Request,
-    _In_reads_bytes_(InputBufferLength)
-    PVOID                InputBuffer,
-    UINT                 InputBufferLength)
-{
-    UNREFERENCED_PARAMETER(InputBufferLength);
-
-    NDIS_OID oid = NetRequestGetId(Request);
-
-    NETADAPTER netAdapter = NetRequestQueueGetAdapter(RequestQueue);
-    RT_ADAPTER *adapter = RtGetAdapterContext(netAdapter);
-
-    TraceEntryRtAdapter(adapter, TraceLoggingUInt32(oid));
-
-    NDIS_OFFLOAD offloadConfiguration;
-    WdfSpinLockAcquire(adapter->Lock); {
-
-        RtAdapterSetOffloadParameters(adapter, (NDIS_OFFLOAD_PARAMETERS*)InputBuffer, &offloadConfiguration);
-
-    } WdfSpinLockRelease(adapter->Lock);
-
-    {
-        NDIS_STATUS_INDICATION statusIndication;
-        RtlZeroMemory(&statusIndication, sizeof(NDIS_STATUS_INDICATION));
-
-        statusIndication.Header.Type = NDIS_OBJECT_TYPE_STATUS_INDICATION;
-        statusIndication.Header.Revision = NDIS_STATUS_INDICATION_REVISION_1;
-        statusIndication.Header.Size = sizeof(NDIS_STATUS_INDICATION);
-
-        statusIndication.SourceHandle = adapter->NdisLegacyAdapterHandle;
-        statusIndication.StatusCode = NDIS_STATUS_TASK_OFFLOAD_CURRENT_CONFIG;
-        statusIndication.StatusBuffer = &offloadConfiguration;
-        statusIndication.StatusBufferSize = sizeof(offloadConfiguration);
-
-        NdisMIndicateStatusEx(adapter->NdisLegacyAdapterHandle, &statusIndication);
-    }
-
-    NetRequestSetDataComplete(Request, STATUS_SUCCESS, sizeof(NDIS_OFFLOAD_PARAMETERS));
-
-    TraceExit();
-}
-
-void
 EvtNetRequestSetOffloadEncapsulation(
     _In_ NETREQUESTQUEUE RequestQueue,
     _In_ NETREQUEST      Request,
@@ -609,7 +453,6 @@ const RT_OID_SET ComplexSets[] = {
     { OID_802_3_MULTICAST_LIST,      EvtNetRequestSetMulticastList,        0 },
     { OID_GEN_CURRENT_PACKET_FILTER, EvtNetRequestSetPacketFilter,         sizeof(ULONG) },
     { OID_GEN_CURRENT_LOOKAHEAD,     EvtNetRequestSetCurrentLookahead,     sizeof(ULONG) },
-    { OID_TCP_OFFLOAD_PARAMETERS,    EvtNetRequestSetTcpOffloadParameters, sizeof(NDIS_OFFLOAD_PARAMETERS) },
     { OID_OFFLOAD_ENCAPSULATION,     EvtNetRequestSetOffloadEncapsulation, sizeof(NDIS_OFFLOAD_ENCAPSULATION) },
     { OID_GEN_INTERRUPT_MODERATION,  EvtNetRequestSetInterruptModeration,  NDIS_SIZEOF_INTERRUPT_MODERATION_PARAMETERS_REVISION_1 },
 };

@@ -81,7 +81,7 @@
 
 #pragma region Software Limits
 
-#define RT_MAX_FRAGMENT_SIZE 0x1000
+#define RT_MAX_FRAGMENT_SIZE 0x10000
 
 // max number of physical fragments supported per TCB
 #define RT_MAX_PHYS_BUF_COUNT 16
