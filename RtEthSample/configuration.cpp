@@ -36,16 +36,9 @@ RT_ADVANCED_PROPERTY RtSupportedProperties[] =
     { NDIS_STRING_CONST("*SpeedDuplex"),             RT_OFFSET(SpeedDuplex),              RT_SIZE(SpeedDuplex),              RtSpeedDuplexModeAutoNegotiation, RtSpeedDuplexModeAutoNegotiation, RtSpeedDuplexMode1GFullDuplex },
     { NDIS_STRING_CONST("*ReceiveBuffers"),          RT_OFFSET(ReceiveBuffers),           RT_SIZE(ReceiveBuffers),           128,                              RT_MIN_RX_DESC,                   RT_MAX_RX_DESC },
     { NDIS_STRING_CONST("*TransmitBuffers"),         RT_OFFSET(TransmitBuffers),          RT_SIZE(TransmitBuffers),          128,                              RT_MIN_TCB,                       RT_MAX_TCB },
-    { NDIS_STRING_CONST("*IPChecksumOffloadIPv4"),   RT_OFFSET(IPChksumOffv4),            RT_SIZE(IPChksumOffv4),            RtChecksumOffloadTxRxEnabled,     RtChecksumOffloadDisabled,        RtChecksumOffloadTxRxEnabled },
-    { NDIS_STRING_CONST("*UDPChecksumOffloadIPv6"),  RT_OFFSET(UDPChksumOffv6),           RT_SIZE(UDPChksumOffv6),           RtChecksumOffloadTxRxEnabled,     RtChecksumOffloadDisabled,        RtChecksumOffloadTxRxEnabled },
-    { NDIS_STRING_CONST("*UDPChecksumOffloadIPv4"),  RT_OFFSET(UDPChksumOffv4),           RT_SIZE(UDPChksumOffv4),           RtChecksumOffloadTxRxEnabled,     RtChecksumOffloadDisabled,        RtChecksumOffloadTxRxEnabled },
-    { NDIS_STRING_CONST("*TCPChecksumOffloadIPv4"),  RT_OFFSET(TCPChksumOffv4),           RT_SIZE(TCPChksumOffv4),           RtChecksumOffloadTxRxEnabled,     RtChecksumOffloadDisabled,        RtChecksumOffloadTxRxEnabled },
-    { NDIS_STRING_CONST("*TCPChecksumOffloadIPv6"),  RT_OFFSET(TCPChksumOffv6),           RT_SIZE(TCPChksumOffv6),           RtChecksumOffloadTxRxEnabled,     RtChecksumOffloadDisabled,        RtChecksumOffloadTxRxEnabled },
     { NDIS_STRING_CONST("*WakeOnMagicPacket"),       RT_OFFSET(WakeOnMagicPacketEnabled), RT_SIZE(WakeOnMagicPacketEnabled), true,                             false,                            true },
     { NDIS_STRING_CONST("*InterruptModeration"),     RT_OFFSET(InterruptModerationMode),  RT_SIZE(InterruptModerationMode),  RtInterruptModerationEnabled,     RtInterruptModerationDisabled,    RtInterruptModerationEnabled },
     { NDIS_STRING_CONST("*FlowControl"),             RT_OFFSET(FlowControl),              RT_SIZE(FlowControl),              RtFlowControlTxRxEnabled,         RtFlowControlDisabled,            RtFlowControlTxRxEnabled },
-    { NDIS_STRING_CONST("*LsoV2Ipv4"),               RT_OFFSET(LSOv4),                    RT_SIZE(LSOv4),                    RtLsoOffloadDisabled,             RtLsoOffloadDisabled,             RtLsoOffloadEnabled },
-    { NDIS_STRING_CONST("*LsoV2Ipv6"),               RT_OFFSET(LSOv6),                    RT_SIZE(LSOv6),                    RtLsoOffloadDisabled,             RtLsoOffloadDisabled,             RtLsoOffloadEnabled },
     { NDIS_STRING_CONST("*RSS"),                     RT_OFFSET(RssEnabled),               RT_SIZE(RssEnabled),               false,                            false,                            true },
 
     // Custom Keywords

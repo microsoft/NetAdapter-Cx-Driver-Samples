@@ -131,12 +131,84 @@ Exit:
     return status;
 }
 
+static
+NTSTATUS
+RtInitializeChipType(
+    _In_ RT_ADAPTER *adapter)
+{
+    if (RtAdapterQueryChipType(adapter, &adapter->ChipType))
+    {
+        TraceLoggingWrite(
+            RealtekTraceProvider,
+            "ChipType",
+            TraceLoggingUInt32(adapter->ChipType));
+        return STATUS_SUCCESS;
+    }
+    //
+    // Unsupported card
+    //
+    NdisWriteErrorLogEntry(
+        adapter->NdisLegacyAdapterHandle,
+        NDIS_ERROR_CODE_ADAPTER_NOT_FOUND,
+        0);
+    return STATUS_NOT_FOUND;
+}
+
+static
+void
+RtInitializeEeprom(
+    _In_ RT_ADAPTER *adapter)
+{
+    UINT16 eepromId, pciId;
+    if (!RtAdapterReadEepromId(adapter, &eepromId, &pciId))
+    {
+        adapter->EEPROMSupported = false;
+    }
+    else
+    {
+        TraceLoggingWrite(
+            RealtekTraceProvider,
+            "EepromId",
+            TraceLoggingLevel(TRACE_LEVEL_INFORMATION),
+            TraceLoggingUInt32(eepromId),
+            TraceLoggingUInt32(pciId));
+
+        adapter->EEPROMSupported = (eepromId == 0x8129 && pciId == 0x10ec);
+    }
+
+    if (!adapter->EEPROMSupported)
+    {
+        TraceLoggingWrite(
+            RealtekTraceProvider,
+            "UnsupportedEEPROM",
+            TraceLoggingLevel(TRACE_LEVEL_WARNING));
+    }
+}
+
+static
+void
+RtAdapterSetCurrentLinkState(
+    _In_ RT_ADAPTER *adapter)
+{
+    // Gathers and indicates current link state to NDIS
+    //
+    // Normally need to take the adapter lock before updating the NIC's
+    // media state, but preparehardware already is serialized against all 
+    // other callbacks to the NetAdapter.
+
+    NET_ADAPTER_LINK_STATE linkState;
+    RtAdapterQueryLinkState(adapter, &linkState);
+
+    NetAdapterSetCurrentLinkState(adapter->NetAdapter, &linkState);
+}
+
 NTSTATUS
 RtInitializeHardware(
     _In_ RT_ADAPTER *adapter,
     _In_ WDFCMRESLIST resourcesRaw,
     _In_ WDFCMRESLIST resourcesTranslated)
 {
+    TraceEntryRtAdapter(adapter);
     //
     // Read the registry parameters
     //
@@ -162,47 +234,10 @@ RtInitializeHardware(
     adapter->Interrupt->Isr[2].Address8 = &adapter->CSRAddress->ISR2;
     adapter->Interrupt->Isr[3].Address8 = &adapter->CSRAddress->ISR3;
 
-    if (!RtAdapterQueryChipType(adapter, &adapter->ChipType))
-    {
-        //
-        // Unsupported card
-        //
-        NdisWriteErrorLogEntry(
-            adapter->NdisLegacyAdapterHandle,
-            NDIS_ERROR_CODE_ADAPTER_NOT_FOUND,
-            0);
-        GOTO_IF_NOT_NT_SUCCESS(Exit, status, STATUS_NOT_FOUND);
-    }
+    GOTO_IF_NOT_NT_SUCCESS(Exit, status,
+        RtInitializeChipType(adapter));
 
-    TraceLoggingWrite(
-        RealtekTraceProvider,
-        "ChipType",
-        TraceLoggingUInt32(adapter->ChipType));
-
-    UINT16 eepromId, pciId;
-    if (!RtAdapterReadEepromId(adapter, &eepromId, &pciId))
-    {
-        adapter->EEPROMSupported = false;
-    }
-    else
-    {
-        TraceLoggingWrite(
-            RealtekTraceProvider,
-            "EepromId",
-            TraceLoggingLevel(TRACE_LEVEL_INFORMATION),
-            TraceLoggingUInt32(eepromId),
-            TraceLoggingUInt32(pciId));
-
-        adapter->EEPROMSupported = (eepromId == 0x8129 && pciId == 0x10ec);
-    }
-    
-    if (!adapter->EEPROMSupported)
-    {
-        TraceLoggingWrite(
-            RealtekTraceProvider,
-            "UnsupportedEEPROM",
-            TraceLoggingLevel(TRACE_LEVEL_WARNING));
-    }
+    RtInitializeEeprom(adapter);
 
     RtAdapterSetupHardware(adapter);
 
@@ -237,16 +272,10 @@ RtInitializeHardware(
 
     adapter->CSRAddress->CPCR = 0;
 
-    // Gathers and indicates current link state to NDIS
-    //
-    // Normally need to take the adapter lock before updating the NIC's
-    // media state, but preparehardware already is serialized against all 
-    // other callbacks to the NetAdapter.
+    RtAdapterSetCurrentLinkState(adapter);
 
-    NET_ADAPTER_LINK_STATE linkState;
-    RtAdapterQueryLinkState(adapter, &linkState);
-
-    NetAdapterSetCurrentLinkState(adapter->NetAdapter, &linkState);
+    GOTO_IF_NOT_NT_SUCCESS(Exit, status,
+        RtAdapterStart(adapter));
 
 Exit:
     TraceExitResult(status);
@@ -257,6 +286,12 @@ void
 RtReleaseHardware(
     _In_ RT_ADAPTER *adapter)
 {
+    if (adapter->HwTallyMemAlloc)
+    {
+        WdfObjectDelete(adapter->HwTallyMemAlloc);
+        adapter->HwTallyMemAlloc = WDF_NO_HANDLE;
+    }
+
     if (adapter->CSRAddress)
     {
         MmUnmapIoSpace(

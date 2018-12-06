@@ -11,22 +11,6 @@
 
 #pragma once
 
-#define TX_DMA_FX_ALLOC_TAG 'xTtR'
-
-#include "txdmafxtypes.h"
-
-EVT_TX_DMA_QUEUE_PROGRAM_DESCRIPTORS EvtSgProgramDescriptors;
-EVT_TX_DMA_QUEUE_FLUSH_TRANSACTION EvtSgFlushTransation;
-EVT_TX_DMA_QUEUE_GET_PACKET_STATUS  EvtSgGetPacketStatus;
-EVT_TX_DMA_QUEUE_BOUNCE_ANALYSIS EvtSgBounceAnalysis;
-
-#define TX_DMA_FX_PROGRAM_DESCRIPTORS EvtSgProgramDescriptors
-#define TX_DMA_FX_GET_PACKET_STATUS EvtSgGetPacketStatus
-#define TX_DMA_FX_FLUSH_TRANSACTION EvtSgFlushTransation
-#define TX_DMA_FX_BOUNCE_ANALYSIS EvtSgBounceAnalysis
-
-#include "txdmafx.h"
-
 typedef struct _RT_TXQUEUE
 {
     RT_ADAPTER *Adapter;
@@ -38,9 +22,10 @@ typedef struct _RT_TXQUEUE
     // descriptor information
     WDFCOMMONBUFFER TxdArray;
     RT_TX_DESC *TxdBase;
+    size_t TxSize;
 
     USHORT NumTxDesc;
-    USHORT TxDescGetptr;
+    USHORT TxDescIndex;
 
     UCHAR volatile *TPPoll;
 
@@ -63,11 +48,15 @@ typedef struct _RT_TCB
 
 NET_PACKET_DECLARE_CONTEXT_TYPE_WITH_NAME(RT_TCB, GetTcbFromPacket);
 
-NTSTATUS RtTxQueueInitialize(_In_ NETTXQUEUE txQueue, _In_ RT_ADAPTER *adapter);
+NTSTATUS RtTxQueueInitialize(_In_ NETPACKETQUEUE txQueue, _In_ RT_ADAPTER *adapter);
 
 _Requires_lock_held_(tx->Adapter->Lock)
 void RtTxQueueStart(_In_ RT_TXQUEUE *tx);
 
 EVT_WDF_OBJECT_CONTEXT_DESTROY EvtTxQueueDestroy;
-EVT_TXQUEUE_SET_NOTIFICATION_ENABLED EvtTxQueueSetNotificationEnabled;
-EVT_TXQUEUE_CANCEL EvtTxQueueCancel;
+
+EVT_PACKET_QUEUE_SET_NOTIFICATION_ENABLED EvtTxQueueSetNotificationEnabled;
+EVT_PACKET_QUEUE_ADVANCE EvtTxQueueAdvance;
+EVT_PACKET_QUEUE_CANCEL EvtTxQueueCancel;
+EVT_PACKET_QUEUE_START EvtTxQueueStart;
+EVT_PACKET_QUEUE_STOP EvtTxQueueStop;

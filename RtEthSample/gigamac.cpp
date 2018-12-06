@@ -41,12 +41,12 @@ GigaMacWrite(
     _In_ UINT32 data
     )
 {
-    NT_ASSERT(! adapter->GigaMacInUse);
+    WdfSpinLockAcquire(adapter->Lock);
 
-    adapter->GigaMacInUse = true;
     adapter->CSRAddress->ERIData = data;
     adapter->CSRAddress->ERIAccess = access;
 
+    bool completed = false;
     for (size_t count = 0; count < GIGAMAC_WAIT_COUNT; count++)
     {
         KeStallExecutionProcessor(GIGAMAC_WAIT_TIME);
@@ -54,14 +54,15 @@ GigaMacWrite(
         if (GIGAMAC_WRITE_DONE(adapter->CSRAddress->ERIAccess))
         {
             KeStallExecutionProcessor(GIGAMAC_WAIT_EXIT_TIME);
-            adapter->GigaMacInUse = false;
+            completed = true;
 
-            return true;
+            break;
         }
     }
-    adapter->GigaMacInUse = false;
 
-    return false;
+    WdfSpinLockRelease(adapter->Lock);
+
+    return completed;
 }
 
 static
