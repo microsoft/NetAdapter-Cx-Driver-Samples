@@ -98,7 +98,7 @@ EvtDeviceD0Entry(
         NET_ADAPTER_LINK_STATE linkState;
         RtAdapterQueryLinkState(adapter, &linkState);
 
-        NetAdapterSetCurrentLinkState(adapter->NetAdapter, &linkState);
+        NetAdapterSetLinkState(adapter->NetAdapter, &linkState);
     }
 
     adapter->CSRAddress->RMS = RT_MAX_FRAME_SIZE;
@@ -129,7 +129,7 @@ EvtDeviceD0Exit(
             NetAdapterPauseFunctionsUnknown,
             NET_ADAPTER_AUTO_NEGOTIATION_NO_FLAGS);
 
-        NetAdapterSetCurrentLinkState(adapter->NetAdapter, &linkState);
+        NetAdapterSetLinkState(adapter->NetAdapter, &linkState);
 
         // acknowledge interrupt
         USHORT isr = adapter->CSRAddress->ISR0;

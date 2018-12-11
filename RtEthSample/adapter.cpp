@@ -11,6 +11,8 @@
 
 #include "precomp.h"
 
+#include <preview/netadapteroffload.h>
+
 #include "trace.h"
 #include "device.h"
 #include "adapter.h"
@@ -62,10 +64,6 @@ Return Value:
     RtGetDeviceContext(adapter->WdfDevice)->Adapter = adapter;
 
     RtlZeroMemory(adapter->RssIndirectionTable, sizeof(adapter->RssIndirectionTable));
-
-    adapter->OffloadEncapsulation.Header.Revision = NDIS_OFFLOAD_ENCAPSULATION_REVISION_1;
-    adapter->OffloadEncapsulation.Header.Size = NDIS_SIZEOF_OFFLOAD_ENCAPSULATION_REVISION_1;
-    adapter->OffloadEncapsulation.Header.Type = NDIS_OBJECT_TYPE_OFFLOAD_ENCAPSULATION;
 
     adapter->EEPROMInUse = false;
 
@@ -177,7 +175,7 @@ _Use_decl_annotations_
 NTSTATUS
 EvtAdapterCreateTxQueue(
     _In_ NETADAPTER netAdapter,
-    _Inout_ PNETTXQUEUE_INIT txQueueInit
+    _Inout_ NETTXQUEUE_INIT * txQueueInit
     )
 {
     NTSTATUS status = STATUS_SUCCESS;
@@ -202,12 +200,6 @@ EvtAdapterCreateTxQueue(
     txConfig.EvtStart = EvtTxQueueStart;
     txConfig.EvtStop = EvtTxQueueStop;
 
-    NET_PACKET_CONTEXT_ATTRIBUTES contextAttributes;
-    NET_PACKET_CONTEXT_ATTRIBUTES_INIT_TYPE(&contextAttributes, RT_TCB);
-
-    GOTO_IF_NOT_NT_SUCCESS(Exit, status,
-        NetTxQueueInitAddPacketContextAttributes(txQueueInit, &contextAttributes));
-
     NETPACKETQUEUE txQueue;
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
         NetTxQueueCreate(
@@ -225,15 +217,16 @@ EvtAdapterCreateTxQueue(
         &extension,
         NET_PACKET_EXTENSION_CHECKSUM_NAME,
         NET_PACKET_EXTENSION_CHECKSUM_VERSION_1);
-
-    tx->ChecksumExtensionOffSet = NetTxQueueGetPacketExtensionOffset(txQueue, &extension);
+    
+    NetTxQueueGetExtension(txQueue, &extension, &tx->ChecksumExtension);
 
     NET_PACKET_EXTENSION_QUERY_INIT(
         &extension,
         NET_PACKET_EXTENSION_LSO_NAME,
         NET_PACKET_EXTENSION_LSO_VERSION_1);
 
-    tx->LsoExtensionOffset = NetTxQueueGetPacketExtensionOffset(txQueue, &extension);
+    NetTxQueueGetExtension(txQueue, &extension, &tx->LsoExtension);
+
 #pragma endregion
 
 #pragma region Initialize RTL8168D Transmit Queue
@@ -253,7 +246,7 @@ _Use_decl_annotations_
 NTSTATUS
 EvtAdapterCreateRxQueue(
     _In_ NETADAPTER netAdapter,
-    _Inout_ PNETRXQUEUE_INIT rxQueueInit
+    _Inout_ NETRXQUEUE_INIT * rxQueueInit
     )
 {
     NTSTATUS status = STATUS_SUCCESS;
@@ -293,7 +286,8 @@ EvtAdapterCreateRxQueue(
         NET_PACKET_EXTENSION_CHECKSUM_VERSION_1);
 
     rx->QueueId = queueId;
-    rx->ChecksumExtensionOffSet = NetRxQueueGetPacketExtensionOffset(rxQueue, &extension);
+
+    NetRxQueueGetExtension(rxQueue, &extension, &rx->ChecksumExtension);
 
 #pragma region Initialize RTL8168D Receive Queue
 
@@ -425,7 +419,7 @@ EvtAdapterReceiveScalingSetIndirectionEntries(
 
     for (size_t i = 0; i < indirectionEntries->Length; i++)
     {
-        const ULONG queueId = RtGetRxQueueContext(indirectionEntries->Entries[i].Queue)->QueueId;
+        const ULONG queueId = RtGetRxQueueContext(indirectionEntries->Entries[i].PacketQueue)->QueueId;
         const UINT32 index = indirectionEntries->Entries[i].Index;
 
         const size_t bit0 = index >> 5;
@@ -498,11 +492,6 @@ Return Value:
             ETH_IS_BROADCAST(adapter->PermanentAddress.Address) ||
             ETH_IS_ZERO(adapter->PermanentAddress.Address))
     {
-        NdisWriteErrorLogEntry(
-            adapter->NdisLegacyAdapterHandle,
-            NDIS_ERROR_CODE_NETWORK_ADDRESS,
-            0);
-
         GOTO_IF_NOT_NT_SUCCESS(Exit, status, STATUS_NDIS_INVALID_ADDRESS);
     }
 
@@ -934,14 +923,14 @@ static
 void
 EvtAdapterOffloadSetChecksum(
     _In_ NETADAPTER netAdapter,
-    _In_ NET_ADAPTER_OFFLOAD_CHECKSUM_CAPABILITIES * capabilities
+    _In_ NETOFFLOAD offload
     )
 {
     RT_ADAPTER *adapter = RtGetAdapterContext(netAdapter);
 
-    adapter->IpHwChkSum = capabilities->IPv4;
-    adapter->TcpHwChkSum = capabilities->Tcp;
-    adapter->UdpHwChkSum = capabilities->Udp;
+    adapter->IpHwChkSum = NetOffloadIsChecksumIPv4Enabled(offload);
+    adapter->TcpHwChkSum = NetOffloadIsChecksumTcpEnabled(offload);
+    adapter->UdpHwChkSum = NetOffloadIsChecksumUdpEnabled(offload);
 
     RtAdapterUpdateHardwareChecksum(adapter);
 }
@@ -950,13 +939,15 @@ static
 void
 EvtAdapterOffloadSetLso(
     _In_ NETADAPTER netAdapter,
-    _In_ NET_ADAPTER_OFFLOAD_LSO_CAPABILITIES * capabilities
+    _In_ NETOFFLOAD offload
     )
 {
     RT_ADAPTER *adapter = RtGetAdapterContext(netAdapter);
 
-    adapter->LSOv4 = capabilities->IPv4 ? RtLsoOffloadEnabled : RtLsoOffloadDisabled;
-    adapter->LSOv6 = capabilities->IPv6 ? RtLsoOffloadEnabled : RtLsoOffloadDisabled;
+    adapter->LSOv4 = NetOffloadIsLsoIPv4Enabled(offload)
+        ? RtLsoOffloadEnabled : RtLsoOffloadDisabled;
+    adapter->LSOv6 = NetOffloadIsLsoIPv6Enabled(offload)
+        ? RtLsoOffloadEnabled : RtLsoOffloadDisabled;
 
     RtAdapterUpdateHardwareChecksum(adapter);
 }
@@ -973,9 +964,10 @@ RtAdapterSetOffloadCapabilities(
         &checksumOffloadCapabilities,
         TRUE,
         TRUE,
-        TRUE);
+        TRUE,
+        EvtAdapterOffloadSetChecksum);
 
-    NetAdapterOffloadSetChecksumCapabilities(adapter->NetAdapter, &checksumOffloadCapabilities, EvtAdapterOffloadSetChecksum);
+    NetAdapterOffloadSetChecksumCapabilities(adapter->NetAdapter, &checksumOffloadCapabilities);
 
     NET_ADAPTER_OFFLOAD_LSO_CAPABILITIES lsoOffloadCapabilities;
 
@@ -984,9 +976,10 @@ RtAdapterSetOffloadCapabilities(
         TRUE,
         TRUE,
         RT_LSO_OFFLOAD_MAX_SIZE,
-        RT_LSO_OFFLOAD_MIN_SEGMENT_COUNT);
+        RT_LSO_OFFLOAD_MIN_SEGMENT_COUNT,
+        EvtAdapterOffloadSetLso);
 
-    NetAdapterOffloadSetLsoCapabilities(adapter->NetAdapter, &lsoOffloadCapabilities, EvtAdapterOffloadSetLso);
+    NetAdapterOffloadSetLsoCapabilities(adapter->NetAdapter, &lsoOffloadCapabilities);
 }
 
 _Use_decl_annotations_

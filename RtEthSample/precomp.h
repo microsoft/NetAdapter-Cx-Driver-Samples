@@ -14,8 +14,11 @@
 #include <ntddk.h>
 #include <wdf.h>
 #include <ntintsafe.h>
-#include <netadaptercx.h>
+#include <preview/netadaptercx.h>
 #include <netiodef.h>
+
+#include <net/checksum.h>
+#include <net/lso.h>
 
 // Avoid putting user headers into the precomp header.
 // Exceptions here include:

@@ -216,7 +216,7 @@ RtAdapterNotifyLinkChange(RT_ADAPTER *adapter)
 
     } WdfSpinLockRelease(adapter->Lock);
 
-    NetAdapterSetCurrentLinkState(adapter->NetAdapter, &linkState);
+    NetAdapterSetLinkState(adapter->NetAdapter, &linkState);
 }
 
 

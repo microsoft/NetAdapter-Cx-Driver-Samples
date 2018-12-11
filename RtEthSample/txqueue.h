@@ -11,13 +11,23 @@
 
 #pragma once
 
+//--------------------------------------
+// TCB (Transmit Control Block)
+//--------------------------------------
+
+typedef struct _RT_TCB
+{
+    USHORT FirstTxDescIdx;
+    ULONG NumTxDesc;
+} RT_TCB;
+
 typedef struct _RT_TXQUEUE
 {
     RT_ADAPTER *Adapter;
     RT_INTERRUPT *Interrupt;
 
-    PCNET_DATAPATH_DESCRIPTOR DatapathDescriptor;
-    NET_PACKET_CONTEXT_TOKEN *TcbToken;
+    NET_RING_COLLECTION const * Rings;
+    RT_TCB* PacketContext;
 
     // descriptor information
     WDFCOMMONBUFFER TxdArray;
@@ -29,24 +39,11 @@ typedef struct _RT_TXQUEUE
 
     UCHAR volatile *TPPoll;
 
-    size_t ChecksumExtensionOffSet;
-    size_t LsoExtensionOffset;
+    NET_EXTENSION ChecksumExtension;
+    NET_EXTENSION LsoExtension;
 } RT_TXQUEUE;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(RT_TXQUEUE, RtGetTxQueueContext);
-
-
-//--------------------------------------
-// TCB (Transmit Control Block)
-//--------------------------------------
-
-typedef struct _RT_TCB
-{
-    USHORT FirstTxDescIdx;
-    ULONG NumTxDesc;
-} RT_TCB;
-
-NET_PACKET_DECLARE_CONTEXT_TYPE_WITH_NAME(RT_TCB, GetTcbFromPacket);
 
 NTSTATUS RtTxQueueInitialize(_In_ NETPACKETQUEUE txQueue, _In_ RT_ADAPTER *adapter);
 

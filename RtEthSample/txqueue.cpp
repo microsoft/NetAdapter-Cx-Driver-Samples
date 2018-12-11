@@ -17,19 +17,22 @@
 #include "adapter.h"
 #include "interrupt.h"
 
+#include <preview/netringiterator.h>
+
 void
 RtUpdateSendStats(
-    _In_ RT_TXQUEUE *tx,
-    _In_ NET_PACKET *packet
+    _In_ RT_TXQUEUE * tx,
+    _In_ NET_RING_PACKET_ITERATOR const * pi
     )
 {
-    PCNET_DATAPATH_DESCRIPTOR descriptor = tx->DatapathDescriptor;
+    NET_PACKET const * packet = NetPacketIteratorGetPacket(pi);
     if (packet->Layout.Layer2Type != NET_PACKET_LAYER2_TYPE_ETHERNET)
     {
         return;
     }
 
-    auto fragment = NET_PACKET_GET_FRAGMENT(packet, descriptor, 0);
+    NET_RING_FRAGMENT_ITERATOR fi = NetPacketIteratorGetFragments(pi);
+    NET_FRAGMENT * fragment = NetFragmentIteratorGetFragment(&fi);
     // Ethernet header should be in first fragment
     if (fragment->ValidLength < sizeof(ETHERNET_HEADER))
     {
@@ -39,10 +42,11 @@ RtUpdateSendStats(
     PUCHAR ethHeader = (PUCHAR)fragment->VirtualAddress + fragment->Offset;
 
     ULONG length = 0;
-    for (UINT32 i = 0; i < packet->FragmentCount; i ++)
+    while (NetFragmentIteratorHasAny(&fi))
     {
-        fragment = NET_PACKET_GET_FRAGMENT(packet, descriptor, i);
+        fragment = NetFragmentIteratorGetFragment(&fi);
         length += (ULONG)fragment->ValidLength;
+        NetFragmentIteratorAdvance(&fi);
     }
 
     RT_ADAPTER *adapter = tx->Adapter;
@@ -89,22 +93,23 @@ RtGetPacketLsoStatusSetting(
 static
 UINT16
 RtGetPacketLsoMss(
-    _In_ const NET_PACKET *packet,
-    _In_ size_t lsoOffset
+    _In_ const NET_EXTENSION * extension,
+    _In_ UINT32 packetIndex
 )
 {
-    return NetPacketGetPacketLargeSendSegmentation(packet, lsoOffset)->TCP.Mss;
+    return NetExtensionGetPacketLargeSendSegmentation(extension, packetIndex)->TCP.Mss;
 }
 
 static
 USHORT
 RtGetPacketChecksumSetting(
     _In_ NET_PACKET const * packet,
-    _In_ size_t checksumOffset
+    _In_ NET_EXTENSION const * checksumExtension,
+    _In_ UINT32 packetIndex
     )
 {
     NET_PACKET_CHECKSUM* checksumInfo =
-        NetPacketGetPacketChecksum(packet, checksumOffset);
+        NetExtensionGetPacketChecksum(checksumExtension, packetIndex);
 
     if (packet->Layout.Layer3Type == NET_PACKET_LAYER3_TYPE_IPV4_NO_OPTIONS ||
         packet->Layout.Layer3Type == NET_PACKET_LAYER3_TYPE_IPV4_WITH_OPTIONS ||
@@ -168,7 +173,8 @@ UINT16
 RtProgramOffloadDescriptor(
     _In_ RT_TXQUEUE const * tx,
     _In_ NET_PACKET const * packet,
-    _In_ RT_TX_DESC * txd
+    _In_ RT_TX_DESC * txd,
+    _In_ UINT32 packetIndex
     )
 {
     UINT16 status = 0;
@@ -177,23 +183,23 @@ RtProgramOffloadDescriptor(
     RT_ADAPTER* adapter = tx->Adapter;
 
     if (packet->Layout.Layer4Type == NET_PACKET_LAYER4_TYPE_TCP
-        && RtGetPacketLsoMss(packet, tx->LsoExtensionOffset) > 0)
+        && RtGetPacketLsoMss(&tx->LsoExtension, packetIndex) > 0)
     {
-        if ((tx->LsoExtensionOffset != NET_PACKET_EXTENSION_INVALID_OFFSET) &&
+        if (tx->LsoExtension.Enabled &&
             (adapter->LSOv4 == RtLsoOffloadEnabled || adapter->LSOv6 == RtLsoOffloadEnabled))
         {
             status |= RtGetPacketLsoStatusSetting(packet);
             txd->TxDescDataIpv6Rss_All.OffloadGsoMssTagc =
-                RtGetPacketLsoMss(packet, tx->LsoExtensionOffset) << TXS_IPV6RSS_MSS_OFFSET;
+                RtGetPacketLsoMss(&tx->LsoExtension, packetIndex) << TXS_IPV6RSS_MSS_OFFSET;
         }
     }
     else
     {
-        if ((tx->ChecksumExtensionOffSet != NET_PACKET_EXTENSION_INVALID_OFFSET) &&
+        if (tx->ChecksumExtension.Enabled &&
             (adapter->TcpHwChkSum || adapter->IpHwChkSum || adapter->UdpHwChkSum))
         {
             txd->TxDescDataIpv6Rss_All.OffloadGsoMssTagc =
-                RtGetPacketChecksumSetting(packet, tx->ChecksumExtensionOffSet);
+                RtGetPacketChecksumSetting(packet, &tx->ChecksumExtension, packetIndex);
         }
     }
 
@@ -202,64 +208,49 @@ RtProgramOffloadDescriptor(
 
 static
 void
-RtProgramDescriptors(
-    _In_ RT_TXQUEUE *tx,
-    _In_ NET_PACKET *packet
+RtPostTxDescriptor(
+    _In_ RT_TXQUEUE * tx,
+    _In_ RT_TCB const * tcb,
+    _In_ NET_PACKET const * packet,
+    _In_ UINT32 packetIndex
     )
 {
-    PCNET_DATAPATH_DESCRIPTOR descriptor = tx->DatapathDescriptor;
+    NET_RING * fr = NetRingCollectionGetFragmentRing(tx->Rings);
+    RT_TX_DESC * txd = &tx->TxdBase[tx->TxDescIndex];
+    UINT16 status = TXS_OWN;
 
-    RtUpdateSendStats(tx, packet);
-    RT_TCB *tcb = GetTcbFromPacketFromToken(tx->DatapathDescriptor, packet, tx->TcbToken);
-
-    for (UINT32 i = 0; i < packet->FragmentCount; i++)
+    if (tx->TxDescIndex == tx->NumTxDesc - 1)
     {
-        bool const lastFragment = i + 1 == packet->FragmentCount;
-        NET_PACKET_FRAGMENT *fragment = NET_PACKET_GET_FRAGMENT(packet, descriptor, i);
-        RT_TX_DESC *txd = &tx->TxdBase[tx->TxDescIndex];
-        USHORT status = TXS_OWN;
-
-        // Last TXD; next should wrap
-        if (tx->TxDescIndex == tx->NumTxDesc - 1)
-        {
-            status |= TXS_EOR;
-        }
-
-        // First fragment of packet
-        if (i == 0)
-        {
-            status |= TXS_FS;
-
-            // Store the hardware descriptor of the first fragment
-            tcb->FirstTxDescIdx = tx->TxDescIndex;
-            tcb->NumTxDesc = 0;
-        }
-
-        // Last fragment of packet
-        if (lastFragment)
-        {
-            status |= TXS_LS;
-        }
-
-        // TODO: vlan
-
-        txd->BufferAddress.QuadPart = fragment->Mapping.DmaLogicalAddress.QuadPart + fragment->Offset;
-        txd->TxDescDataIpv6Rss_All.length = (USHORT)fragment->ValidLength;
-        txd->TxDescDataIpv6Rss_All.VLAN_TAG.Value = 0;
-
-        status |= RtProgramOffloadDescriptor(tx, packet, txd);
-
-        MemoryBarrier();
-        txd->TxDescDataIpv6Rss_All.status = status;
-
-        tx->TxDescIndex = (tx->TxDescIndex + 1) % tx->NumTxDesc;
-
-        if (lastFragment)
-        {
-            tcb->NumTxDesc = i + 1;
-            break;
-        }
+        status |= TXS_EOR;
     }
+
+    // first fragment
+    if (tcb->NumTxDesc == 0)
+    {
+        status |= TXS_FS;
+    }
+
+    // last fragment
+    if (tcb->NumTxDesc + 1 == packet->FragmentCount)
+    {
+        status |= TXS_LS;
+    }
+
+    // calculate the index in the fragment ring and retrieve
+    // the fragment being posted to populate the hardware descriptor
+    UINT32 const index = (packet->FragmentIndex + tcb->NumTxDesc) & fr->ElementIndexMask;
+    NET_FRAGMENT const * fragment = NetRingGetFragmentAtIndex(fr, index);
+
+    txd->BufferAddress = fragment->Mapping.DmaLogicalAddress + fragment->Offset;
+    txd->TxDescDataIpv6Rss_All.length = (USHORT)fragment->ValidLength;
+    txd->TxDescDataIpv6Rss_All.VLAN_TAG.Value = 0;
+
+    status |= RtProgramOffloadDescriptor(tx, packet, txd, packetIndex);
+
+    MemoryBarrier();
+
+    txd->TxDescDataIpv6Rss_All.status = status;
+    tx->TxDescIndex = (tx->TxDescIndex + 1) % tx->NumTxDesc;
 }
 
 static
@@ -273,29 +264,46 @@ RtFlushTransation(
 }
 
 static
+RT_TCB*
+GetTcbFromPacket(
+    _In_ RT_TXQUEUE *tx,
+    _In_ UINT32 Index
+    )
+{
+    return &tx->PacketContext[Index];
+}
+
+static
 bool
 RtIsPacketTransferComplete(
     _In_ RT_TXQUEUE *tx,
-    _In_ NET_PACKET *packet
+    _In_ NET_RING_PACKET_ITERATOR const * pi
     )
 {
-    RT_TCB *tcb = GetTcbFromPacketFromToken(tx->DatapathDescriptor, packet, tx->TcbToken);
-    RT_TX_DESC *txd = &tx->TxdBase[tcb->FirstTxDescIdx];
+    NET_PACKET const * packet = NetPacketIteratorGetPacket(pi);
+    if (! packet->Ignore)
+    {
+        RT_TCB const * tcb = GetTcbFromPacket(tx, NetPacketIteratorGetIndex(pi));
+        RT_TX_DESC * txd = &tx->TxdBase[tcb->FirstTxDescIdx];
 
-    // Look at the status flags on the last fragment in the packet.
-    // If the hardware-ownership flag is still set, then the packet isn't done.
-    if (0 != (txd->TxDescDataIpv6Rss_All.status & TXS_OWN))
-    {
-        return false;
-    }
-    else
-    {
+        // Look at the status flags on the last fragment in the packet.
+        // If the hardware-ownership flag is still set, then the packet isn't done.
+        if (0 != (txd->TxDescDataIpv6Rss_All.status & TXS_OWN))
+        {
+            return false;
+        }
+
+        NET_RING_FRAGMENT_ITERATOR fi = NetPacketIteratorGetFragments(pi);
         for (size_t idx = 0; idx < tcb->NumTxDesc; idx++)
         {
             size_t nextTxDescIdx = (tcb->FirstTxDescIdx + idx) % tx->NumTxDesc;
             txd = &tx->TxdBase[nextTxDescIdx];
             txd->TxDescDataIpv6Rss_All.status = 0;
+            NetFragmentIteratorAdvance(&fi);
         }
+        RtUpdateSendStats(tx, pi);
+        fi.Iterator.Rings->Rings[NET_RING_TYPE_FRAGMENT]->BeginIndex
+            = NetFragmentIteratorGetIndex(&fi);
     }
 
     return true;
@@ -307,24 +315,34 @@ RtTransmitPackets(
     _In_ RT_TXQUEUE *tx
     )
 {
-    PCNET_DATAPATH_DESCRIPTOR descriptor = tx->DatapathDescriptor;
-    NET_RING_BUFFER *ringBuffer = NET_DATAPATH_DESCRIPTOR_GET_PACKET_RING_BUFFER(descriptor);
-    size_t programmedPackets = 0;
+    bool programmedPackets = false;
 
-    while (ringBuffer->NextIndex != ringBuffer->EndIndex)
+    NET_RING_PACKET_ITERATOR pi = NetRingGetPostPackets(tx->Rings);
+    while (NetPacketIteratorHasAny(&pi))
     {
-        NET_PACKET *netPacket = NetRingBufferGetNextPacket(descriptor);
-
-        if (!netPacket->IgnoreThisPacket)
+        NET_PACKET * packet = NetPacketIteratorGetPacket(&pi);
+        if (! packet->Ignore)
         {
-            RtProgramDescriptors(tx, netPacket);
-            programmedPackets++;
+            RT_TCB* tcb = GetTcbFromPacket(tx, NetPacketIteratorGetIndex(&pi));
+
+            tcb->FirstTxDescIdx = tx->TxDescIndex;
+
+            NET_RING_FRAGMENT_ITERATOR fi = NetPacketIteratorGetFragments(&pi);
+            for (tcb->NumTxDesc = 0; NetFragmentIteratorHasAny(&fi); tcb->NumTxDesc++)
+            {
+                RtPostTxDescriptor(tx, tcb, packet, NetPacketIteratorGetIndex(&pi));
+                NetFragmentIteratorAdvance(&fi);
+            }
+            fi.Iterator.Rings->Rings[NET_RING_TYPE_FRAGMENT]->NextIndex
+                = NetFragmentIteratorGetIndex(&fi);
+
+            programmedPackets = true;
         }
-
-        ringBuffer->NextIndex = NetRingBufferIncrementIndex(ringBuffer, ringBuffer->NextIndex);
+        NetPacketIteratorAdvance(&pi);
     }
+    NetPacketIteratorSet(&pi);
 
-    if (programmedPackets > 0)
+    if (programmedPackets)
     {
         RtFlushTransation(tx);
     }
@@ -336,25 +354,18 @@ RtCompleteTransmitPackets(
     _In_ RT_TXQUEUE *tx
     )
 {
-    PCNET_DATAPATH_DESCRIPTOR descriptor = tx->DatapathDescriptor;
-    NET_RING_BUFFER *ringBuffer = NET_DATAPATH_DESCRIPTOR_GET_PACKET_RING_BUFFER(descriptor);
 
-    while (ringBuffer->BeginIndex != ringBuffer->NextIndex)
+    NET_RING_PACKET_ITERATOR pi = NetRingGetDrainPackets(tx->Rings);
+    while (NetPacketIteratorHasAny(&pi))
     {
-        NET_PACKET *packet = NetRingBufferGetPacketAtIndex(descriptor, ringBuffer->BeginIndex);
-
-        if (!packet->IgnoreThisPacket)
+        if (! RtIsPacketTransferComplete(tx, &pi))
         {
-            if (!RtIsPacketTransferComplete(tx, packet))
-            {
-                // We need to complete packets in order, if the current is still
-                // pending there is no point in keep trying
-                break;
-            }
+            break;
         }
 
-        ringBuffer->BeginIndex = NetRingBufferIncrementIndex(ringBuffer, ringBuffer->BeginIndex);
+        NetPacketIteratorAdvance(&pi);
     }
+    NetPacketIteratorSet(&pi);
 }
 
 _Use_decl_annotations_
@@ -384,13 +395,27 @@ RtTxQueueInitialize(
 
     tx->Adapter = adapter;
 
-    tx->TcbToken = NetTxQueueGetPacketContextToken(txQueue, WDF_GET_CONTEXT_TYPE_INFO(RT_TCB));
-
     tx->TPPoll = &adapter->CSRAddress->TPPoll;
     tx->Interrupt = adapter->Interrupt;
     tx->NumTxDesc = (USHORT)(adapter->NumTcb * RT_MAX_PHYS_BUF_COUNT);
     
-    tx->DatapathDescriptor = NetTxQueueGetDatapathDescriptor(txQueue);
+    tx->Rings = NetTxQueueGetRingCollection(txQueue);
+
+    NET_RING * pr = NetRingCollectionGetPacketRing(tx->Rings);
+    WDF_OBJECT_ATTRIBUTES tcbAttributes;
+    WDF_OBJECT_ATTRIBUTES_INIT(&tcbAttributes);
+    tcbAttributes.ParentObject = txQueue;
+    WDFMEMORY memory = NULL;
+
+    GOTO_IF_NOT_NT_SUCCESS(Exit, status,
+        WdfMemoryCreate(
+            &tcbAttributes,
+            NonPagedPoolNx,
+            0,
+            sizeof(RT_TCB) * pr->NumberOfElements,
+            &memory,
+            (void**)&tx->PacketContext
+        ));
 
     ULONG txSize;
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,

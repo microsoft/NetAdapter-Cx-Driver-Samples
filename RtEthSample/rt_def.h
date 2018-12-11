@@ -172,7 +172,7 @@ typedef struct _RT_TX_DESC
         unsigned short OffloadGsoMssTagc;
     } TxDescDataIpv6Rss_All;
 
-    PHYSICAL_ADDRESS BufferAddress;
+    LOGICAL_ADDRESS BufferAddress;
 
 } RT_TX_DESC;
 
@@ -188,7 +188,7 @@ typedef struct _RT_RX_DESC
         unsigned short IpRssTava;
     } RxDescDataIpv6Rss;
 
-    PHYSICAL_ADDRESS BufferAddress;
+    LOGICAL_ADDRESS BufferAddress;
 } RT_RX_DESC;
 
 typedef struct _RT_TALLY

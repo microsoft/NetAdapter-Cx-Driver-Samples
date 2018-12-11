@@ -44,31 +44,6 @@ EvtNetRequestQueryVendorDescription(
     TraceExit();
 }
 
-// OID_OFFLOAD_ENCAPSULATION
-void
-EvtNetRequestQueryOffloadEncapsulation(
-    _In_ NETREQUESTQUEUE RequestQueue,
-    _In_ NETREQUEST Request,
-    _Out_writes_bytes_(OutputBufferLength)
-    PVOID OutputBuffer,
-    UINT OutputBufferLength)
-{
-    __analysis_assume(OutputBufferLength >= sizeof(NDIS_OFFLOAD_ENCAPSULATION));
-
-    UNREFERENCED_PARAMETER((OutputBufferLength));
-
-    NETADAPTER netAdapter = NetRequestQueueGetAdapter(RequestQueue);
-    RT_ADAPTER *adapter = RtGetAdapterContext(netAdapter);
-
-    TraceEntryRtAdapter(adapter);
-
-    RtlCopyMemory(OutputBuffer, &adapter->OffloadEncapsulation, sizeof(NDIS_OFFLOAD_ENCAPSULATION));
-
-    NetRequestQueryDataComplete(Request, STATUS_SUCCESS, sizeof(NDIS_OFFLOAD_ENCAPSULATION));
-
-    TraceExit();
-}
-
 void
 EvtNetRequestQuerySuccess(
     _In_ NETREQUESTQUEUE RequestQueue,
@@ -128,9 +103,9 @@ EvtNetRequestQueryUlong(
 
     case OID_GEN_CURRENT_LOOKAHEAD:
         // "Current Lookahead" is the number of bytes following the Ethernet header
-        // that the NIC should indicate in the first NET_PACKET_FRAGMENT. Essentially
+        // that the NIC should indicate in the first NET_FRAGMENT. Essentially
         // a Current Lookahead of 8 would mean that each indicated NET_PACKET's first
-        // NET_PACKET_FRAGMENT would point to a buffer of at *least* size
+        // NET_FRAGMENT would point to a buffer of at *least* size
         // ETH_LENGTH_OF_HEADER + 8.
         //
         // Since the RTL8168D *always* indicates all traffic in a single, contiguous buffer,
@@ -159,7 +134,7 @@ EvtNetRequestQueryUlong(
     case OID_GEN_RECEIVE_BUFFER_SPACE:
         if (adapter->RxQueues[0])
         {
-            result = RT_MAX_PACKET_SIZE * NET_DATAPATH_DESCRIPTOR_GET_PACKET_RING_BUFFER(NetRxQueueGetDatapathDescriptor(adapter->RxQueues[0]))->NumberOfElements;
+            result = RT_MAX_PACKET_SIZE * NetRingCollectionGetPacketRing(NetRxQueueGetRingCollection(adapter->RxQueues[0]))->NumberOfElements;
         }
         else
         {
@@ -318,38 +293,6 @@ Exit:
 }
 
 void
-EvtNetRequestSetOffloadEncapsulation(
-    _In_ NETREQUESTQUEUE RequestQueue,
-    _In_ NETREQUEST      Request,
-    _In_reads_bytes_(InputBufferLength)
-    PVOID                InputBuffer,
-    UINT                 InputBufferLength)
-{
-    UNREFERENCED_PARAMETER(InputBufferLength);
-
-    NDIS_OID oid = NetRequestGetId(Request);
-
-    NETADAPTER netAdapter = NetRequestQueueGetAdapter(RequestQueue);
-    RT_ADAPTER *adapter = RtGetAdapterContext(netAdapter);
-
-    TraceEntryRtAdapter(adapter, TraceLoggingUInt32(oid));
-
-    NDIS_OFFLOAD_ENCAPSULATION *setEncapsulation = (NDIS_OFFLOAD_ENCAPSULATION*)InputBuffer;
-
-    adapter->OffloadEncapsulation.IPv4.Enabled           = setEncapsulation->IPv4.Enabled;
-    adapter->OffloadEncapsulation.IPv4.EncapsulationType = setEncapsulation->IPv4.EncapsulationType;
-    adapter->OffloadEncapsulation.IPv4.HeaderSize        = setEncapsulation->IPv4.HeaderSize;
-
-    adapter->OffloadEncapsulation.IPv6.Enabled           = setEncapsulation->IPv6.Enabled;
-    adapter->OffloadEncapsulation.IPv6.EncapsulationType = setEncapsulation->IPv6.EncapsulationType;
-    adapter->OffloadEncapsulation.IPv6.HeaderSize        = setEncapsulation->IPv6.HeaderSize;
-
-    NetRequestSetDataComplete(Request, STATUS_SUCCESS, sizeof(NDIS_OFFLOAD_ENCAPSULATION));
-
-    TraceExit();
-}
-
-void
 EvtNetRequestQueryInterruptModeration(
     _In_ NETREQUESTQUEUE RequestQueue,
     _In_ NETREQUEST Request,
@@ -438,7 +381,6 @@ typedef struct _RT_OID_QUERY {
 const RT_OID_QUERY ComplexQueries[] = {
     { OID_GEN_STATISTICS,           EvtNetRequestQueryAllStatistics,        sizeof(NDIS_STATISTICS_INFO) },
     { OID_GEN_VENDOR_DESCRIPTION,   EvtNetRequestQueryVendorDescription,    sizeof(RTK_NIC_GBE_PCIE_ADAPTER_NAME) },
-    { OID_OFFLOAD_ENCAPSULATION,    EvtNetRequestQueryOffloadEncapsulation, sizeof(NDIS_OFFLOAD_ENCAPSULATION) },
     { OID_PNP_QUERY_POWER,          EvtNetRequestQuerySuccess,              0 },
     { OID_GEN_INTERRUPT_MODERATION, EvtNetRequestQueryInterruptModeration,  NDIS_SIZEOF_INTERRUPT_MODERATION_PARAMETERS_REVISION_1 },
 };
@@ -453,7 +395,6 @@ const RT_OID_SET ComplexSets[] = {
     { OID_802_3_MULTICAST_LIST,      EvtNetRequestSetMulticastList,        0 },
     { OID_GEN_CURRENT_PACKET_FILTER, EvtNetRequestSetPacketFilter,         sizeof(ULONG) },
     { OID_GEN_CURRENT_LOOKAHEAD,     EvtNetRequestSetCurrentLookahead,     sizeof(ULONG) },
-    { OID_OFFLOAD_ENCAPSULATION,     EvtNetRequestSetOffloadEncapsulation, sizeof(NDIS_OFFLOAD_ENCAPSULATION) },
     { OID_GEN_INTERRUPT_MODERATION,  EvtNetRequestSetInterruptModeration,  NDIS_SIZEOF_INTERRUPT_MODERATION_PARAMETERS_REVISION_1 },
 };
 

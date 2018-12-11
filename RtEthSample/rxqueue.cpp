@@ -18,6 +18,8 @@
 #include "interrupt.h"
 #include "gigamac.h"
 
+#include <preview/netringiterator.h>
+
 void
 RtUpdateRecvStats(
     _In_ RT_RXQUEUE *rx,
@@ -48,14 +50,15 @@ void
 RxFillRtl8111DChecksumInfo(
     _In_    RT_RXQUEUE const *rx,
     _In_    RT_RX_DESC const *rxd,
+    _In_    UINT32 packetIndex,
     _Inout_ NET_PACKET *packet
     )
 {
     RT_ADAPTER* adapter = rx->Adapter;
     NET_PACKET_CHECKSUM* checksumInfo =
-        NetPacketGetPacketChecksum(
-            packet,
-            rx->ChecksumExtensionOffSet);
+        NetExtensionGetPacketChecksum(
+            &rx->ChecksumExtension,
+            packetIndex);
 
     packet->Layout.Layer2Type = NET_PACKET_LAYER2_TYPE_ETHERNET;
     checksumInfo->Layer2 =
@@ -125,14 +128,15 @@ void
 RxFillRtl8111EChecksumInfo(
     _In_    RT_RXQUEUE const *rx,
     _In_    RT_RX_DESC const *rxd,
+    _In_    UINT32 packetIndex,
     _Inout_ NET_PACKET *packet
     )
 {
     RT_ADAPTER* adapter = rx->Adapter;
     NET_PACKET_CHECKSUM* checksumInfo =
-        NetPacketGetPacketChecksum(
-            packet,
-            rx->ChecksumExtensionOffSet);
+        NetExtensionGetPacketChecksum(
+            &rx->ChecksumExtension,
+            packetIndex);
 
     packet->Layout.Layer2Type = NET_PACKET_LAYER2_TYPE_ETHERNET;
     checksumInfo->Layer2 =
@@ -202,17 +206,18 @@ void
 RtFillRxChecksumInfo(
     _In_    RT_RXQUEUE const *rx,
     _In_    RT_RX_DESC const *rxd,
+    _In_    UINT32 packetIndex,
     _Inout_ NET_PACKET *packet
     )
 {
     switch (rx->Adapter->ChipType)
     {
     case RTL8168D:
-        RxFillRtl8111DChecksumInfo(rx, rxd, packet);
+        RxFillRtl8111DChecksumInfo(rx, rxd, packetIndex, packet);
         break;
     case RTL8168D_REV_C_REV_D:
     case RTL8168E:
-        RxFillRtl8111EChecksumInfo(rx, rxd, packet);
+        RxFillRtl8111EChecksumInfo(rx, rxd, packetIndex, packet);
         break;
     }
 }
@@ -222,72 +227,74 @@ RxIndicateReceives(
     _In_ RT_RXQUEUE *rx
     )
 {
-    PCNET_DATAPATH_DESCRIPTOR descriptor = rx->DatapathDescriptor;
-    NET_RING_BUFFER *rb = NET_DATAPATH_DESCRIPTOR_GET_PACKET_RING_BUFFER(descriptor);
-
-    UINT32 i;
-
-    for (i = rb->BeginIndex; i != rb->NextIndex; i = NetRingBufferIncrementIndex(rb, i))
+    NET_RING_FRAGMENT_ITERATOR fi = NetRingGetDrainFragments(rx->Rings);
+    NET_RING_PACKET_ITERATOR pi = NetRingGetAllPackets(rx->Rings);
+    while (NetFragmentIteratorHasAny(&fi))
     {
-        RT_RX_DESC const *rxd = &rx->RxdBase[i];
-        NET_PACKET *packet = NetRingBufferGetPacketAtIndex(descriptor, i);
+        UINT32 index = NetFragmentIteratorGetIndex(&fi);
+        RT_RX_DESC const * rxd = &rx->RxdBase[index];
 
         if (0 != (rxd->RxDescDataIpv6Rss.status & RXS_OWN))
             break;
 
-        auto fragment = NET_PACKET_GET_FRAGMENT(packet, descriptor, 0);
+        NET_FRAGMENT * fragment = NetFragmentIteratorGetFragment(&fi);
         fragment->ValidLength = rxd->RxDescDataIpv6Rss.length - FRAME_CRC_SIZE;
-        fragment->Offset = 0;
 
-        NT_FRE_ASSERT(packet->FragmentCount == 1);
+        NET_PACKET * packet = NetPacketIteratorGetPacket(&pi);
+        packet->FragmentIndex = index;
+        packet->FragmentCount = 1;
 
-        if (rx->ChecksumExtensionOffSet != NET_PACKET_EXTENSION_INVALID_OFFSET)
+        if (rx->ChecksumExtension.Enabled)
         {
             // fill packetTcpChecksum
-            RtFillRxChecksumInfo(rx, rxd, packet);
+            RtFillRxChecksumInfo(rx, rxd, NetPacketIteratorGetIndex(&pi), packet);
         }
 
         RtUpdateRecvStats(rx, rxd, fragment->ValidLength);
-    }
 
-    rb->BeginIndex = i;
+        NetFragmentIteratorAdvance(&fi);
+        NetPacketIteratorAdvance(&pi);
+    }
+    NetFragmentIteratorSet(&fi);
+    NetPacketIteratorSet(&pi);
 }
 
+static
+void
+RtPostRxDescriptor(
+    _In_ RT_RX_DESC * desc,
+    _In_ NET_FRAGMENT const * fragment,
+    _In_ UINT16 status
+    )
+{
+    desc->BufferAddress = fragment->Mapping.DmaLogicalAddress;
+    desc->RxDescDataIpv6Rss.TcpUdpFailure = 0;
+    desc->RxDescDataIpv6Rss.length = fragment->Capacity;
+    desc->RxDescDataIpv6Rss.VLAN_TAG.Value = 0;
+
+    MemoryBarrier();
+
+    desc->RxDescDataIpv6Rss.status = status;
+}
+
+static
 void
 RxPostBuffers(
     _In_ RT_RXQUEUE *rx
     )
 {
-    PCNET_DATAPATH_DESCRIPTOR descriptor = rx->DatapathDescriptor;
-    NET_RING_BUFFER *rb = NET_DATAPATH_DESCRIPTOR_GET_PACKET_RING_BUFFER(descriptor);
+    NET_RING * fr = NetRingCollectionGetFragmentRing(rx->Rings);
+    NET_RING_FRAGMENT_ITERATOR fi = NetRingGetPostFragments(rx->Rings);
 
-    UINT32 initialIndex = rb->NextIndex;
-
-    while (true)
+    while (NetFragmentIteratorHasAny(&fi))
     {
-        UINT32 index = rb->NextIndex;
-        RT_RX_DESC *rxd = &rx->RxdBase[index];
-
-        NET_PACKET *packet = NetRingBufferAdvanceNextPacket(descriptor);
-        if (!packet)
-            break;
-
-        auto fragment = NET_PACKET_GET_FRAGMENT(packet, descriptor, 0);
-        rxd->BufferAddress = fragment->Mapping.DmaLogicalAddress;
-        rxd->RxDescDataIpv6Rss.TcpUdpFailure = 0;
-        rxd->RxDescDataIpv6Rss.length = fragment->Capacity;
-        rxd->RxDescDataIpv6Rss.VLAN_TAG.Value = 0;
-
-        MemoryBarrier();
-
-        rxd->RxDescDataIpv6Rss.status = RXS_OWN | ((rb->NextIndex == 0) ? RXS_EOR : 0);
+        UINT32 const index = NetFragmentIteratorGetIndex(&fi);
+        RtPostRxDescriptor(&rx->RxdBase[index],
+            NetFragmentIteratorGetFragment(&fi),
+            RXS_OWN | (fr->ElementIndexMask == index ? RXS_EOR : 0));
+        NetFragmentIteratorAdvance(&fi);
     }
-
-    if (initialIndex != rb->NextIndex)
-    {
-        // jtippet: here's where to ring the doorbell to inform HW that more RXDs were posted.
-        // But I can't find any doorbell in the old code.
-    }
+    NetFragmentIteratorSet(&fi);
 }
 
 NTSTATUS
@@ -302,11 +309,11 @@ RtRxQueueInitialize(
 
     rx->Adapter = adapter;
     rx->Interrupt = adapter->Interrupt;
-    rx->DatapathDescriptor = NetRxQueueGetDatapathDescriptor(rxQueue);
+    rx->Rings = NetRxQueueGetRingCollection(rxQueue);
 
     // allocate descriptors
-    auto descriptor = NET_DATAPATH_DESCRIPTOR_GET_PACKET_RING_BUFFER(rx->DatapathDescriptor);
-    auto const rxdSize = descriptor->NumberOfElements * sizeof(RT_RX_DESC);
+    NET_RING * pr = NetRingCollectionGetPacketRing(rx->Rings);
+    UINT32 const rxdSize = pr->NumberOfElements * sizeof(RT_RX_DESC);
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
         WdfCommonBufferCreate(
             rx->Adapter->DmaEnabler,
@@ -501,7 +508,15 @@ EvtRxQueueCancel(
     // after cancel until all packets are returned to the framework.
     RxIndicateReceives(rx);
 
-    NetRingBufferReturnAllPackets(NetRxQueueGetDatapathDescriptor(rxQueue));
+    NET_RING * pr = NetRingCollectionGetPacketRing(rx->Rings);
+    for (; pr->BeginIndex != pr->EndIndex;
+        pr->BeginIndex = NetRingIncrementIndex(pr, pr->BeginIndex))
+    {
+        NetRingGetPacketAtIndex(pr, pr->BeginIndex)->Ignore = 1;
+    }
+
+    NET_RING * fr = NetRingCollectionGetFragmentRing(rx->Rings);
+    fr->BeginIndex = fr->EndIndex;
 
     TraceExit();
 }

@@ -84,15 +84,6 @@ RtGetResources(
 
 Exit:
 
-    if (!NT_SUCCESS(status))
-    {
-        NdisWriteErrorLogEntry(
-            adapter->NdisLegacyAdapterHandle,
-            errorCode,
-            1,
-            errorValue);
-    }
-
     TraceExitResult(status);
     return status;
 }
@@ -118,14 +109,6 @@ RtRegisterScatterGatherDma(
         TraceLoggingRtAdapter(adapter));
 
 Exit:
-    if (!NT_SUCCESS(status))
-    {
-        NdisWriteErrorLogEntry(
-            adapter->NdisLegacyAdapterHandle,
-            NDIS_ERROR_CODE_OUT_OF_RESOURCES,
-            1,
-            ERRLOG_OUT_OF_SG_RESOURCES);
-    }
 
     TraceExitResult(status);
     return status;
@@ -144,13 +127,7 @@ RtInitializeChipType(
             TraceLoggingUInt32(adapter->ChipType));
         return STATUS_SUCCESS;
     }
-    //
-    // Unsupported card
-    //
-    NdisWriteErrorLogEntry(
-        adapter->NdisLegacyAdapterHandle,
-        NDIS_ERROR_CODE_ADAPTER_NOT_FOUND,
-        0);
+
     return STATUS_NOT_FOUND;
 }
 
@@ -199,7 +176,7 @@ RtAdapterSetCurrentLinkState(
     NET_ADAPTER_LINK_STATE linkState;
     RtAdapterQueryLinkState(adapter, &linkState);
 
-    NetAdapterSetCurrentLinkState(adapter->NetAdapter, &linkState);
+    NetAdapterSetLinkState(adapter->NetAdapter, &linkState);
 }
 
 NTSTATUS
@@ -213,9 +190,6 @@ RtInitializeHardware(
     // Read the registry parameters
     //
     NTSTATUS status = STATUS_SUCCESS;
-
-    adapter->NdisLegacyAdapterHandle =
-        NetAdapterWdmGetNdisHandle(adapter->NetAdapter);
 
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
         RtAdapterReadConfiguration(adapter));

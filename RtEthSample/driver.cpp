@@ -82,7 +82,7 @@ EvtDriverDeviceAdd(
     TraceEntry();
 
     NTSTATUS status = STATUS_SUCCESS;
-    PNETADAPTER_INIT adapterInit = nullptr;
+    NETADAPTER_INIT * adapterInit = nullptr;
 
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
         NetAdapterDeviceInitConfig(deviceInit));
@@ -131,7 +131,7 @@ EvtDriverDeviceAdd(
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
         WdfDeviceAssignSxWakeSettings(wdfDevice, &wakeSettings));
 
-    adapterInit = NetDefaultAdapterInitAllocate(wdfDevice);
+    adapterInit = NetAdapterInitAllocate(wdfDevice);
 
     GOTO_WITH_INSUFFICIENT_RESOURCES_IF_NULL(Exit, status, adapterInit);
 

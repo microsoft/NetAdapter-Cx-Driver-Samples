@@ -95,9 +95,6 @@ typedef struct _RT_ADAPTER
     // Pointer to interrupt object
     RT_INTERRUPT *Interrupt;
 
-    // Handle given by NDIS when the NetAdapter registered itself.
-    NDIS_HANDLE NdisLegacyAdapterHandle;
-
     // configuration
     NET_ADAPTER_LINK_LAYER_ADDRESS PermanentAddress;
     NET_ADAPTER_LINK_LAYER_ADDRESS CurrentAddress;
@@ -158,8 +155,6 @@ typedef struct _RT_ADAPTER
     RT_CHIP_TYPE ChipType;
 
     bool LinkAutoNeg;
-
-    NDIS_OFFLOAD_ENCAPSULATION OffloadEncapsulation;
 
     USHORT ReceiveBuffers;
     USHORT TransmitBuffers;
