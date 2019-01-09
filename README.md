@@ -6,13 +6,15 @@ The Network Adapter Class Extension to WDF (NetAdapterCx) brings together the pr
 This repository hosts code you can include into your own NIC driver, based on NetAdapterCx.
 
 # Contents
-- [RTL8168D Sample Driver](RtEthSample/README.md)
-
-## The RTL8168D Sample Driver
+- [RTL8168D Sample Driver](RtEthSample/README.md) 
 
 This is a complete, working driver for the `PCI\VEN_10EC&DEV_8168&SUBSYS_816810EC&REV_03` device.
 The device is based on the PCI bus, uses bus-mastering DMA to transfer data, and uses line-based interrupts.
 The hardware supports checksum offload, interupt moderation, and several Wake-on-LAN patterns.
+
+# Other NetAdapterCx Sample Drivers 
+
+[The NCM Driver for Windows](https://github.com/Microsoft/NCM-Driver-for-Windows) repro contains NetAdapterCx samples for USB based NICs
 
 # Contributing
 
