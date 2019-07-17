@@ -81,8 +81,6 @@
 
 #pragma region Software Limits
 
-#define RT_MAX_FRAGMENT_SIZE 0x10000
-
 // max number of physical fragments supported per TCB
 #define RT_MAX_PHYS_BUF_COUNT 16
 
@@ -100,18 +98,6 @@
 
 #pragma endregion
 
-#pragma region Version
-
-// Driver version numbers
-// update the driver version number every time you release a new driver
-// The high word is the major version. The low word is the minor version.
-// this should be the same as the version reported in miniport driver characteristics
-#define RT_MAJOR_DRIVER_VERSION        1
-#define RT_MINOR_DRIVER_VERISON        0
-#define RT_VENDOR_DRIVER_VERSION       ((RT_MAJOR_DRIVER_VERSION << 16) | RT_MINOR_DRIVER_VERISON)
-
-#pragma endregion
-
 #pragma region Error Codes
 
 // Error log definitions
@@ -124,21 +110,11 @@
 
 // supported filters
 #define RT_SUPPORTED_FILTERS (          \
-    NET_PACKET_FILTER_TYPE_DIRECTED    | \
-    NET_PACKET_FILTER_TYPE_MULTICAST   | \
-    NET_PACKET_FILTER_TYPE_BROADCAST   | \
-    NET_PACKET_FILTER_TYPE_PROMISCUOUS | \
-    NET_PACKET_FILTER_TYPE_ALL_MULTICAST)
-
-#define NIC_SUPPORTED_STATISTICS (                 \
-    NET_ADAPTER_STATISTICS_XMIT_OK               | \
-    NET_ADAPTER_STATISTICS_RCV_OK                | \
-    NET_ADAPTER_STATISTICS_XMIT_ERROR            | \
-    NET_ADAPTER_STATISTICS_RCV_ERROR             | \
-    NET_ADAPTER_STATISTICS_RCV_CRC_ERROR         | \
-    NET_ADAPTER_STATISTICS_RCV_NO_BUFFER         | \
-    NET_ADAPTER_STATISTICS_TRANSMIT_QUEUE_LENGTH | \
-    NET_ADAPTER_STATISTICS_GEN_STATISTICS)
+    NetPacketFilterFlagDirected    | \
+    NetPacketFilterFlagMulticast   | \
+    NetPacketFilterFlagBroadcast   | \
+    NetPacketFilterFlagPromiscuous | \
+    NetPacketFilterFlagAllMulticast)
 
 #define RT_NUMBER_OF_QUEUES 4
 
@@ -172,7 +148,7 @@ typedef struct _RT_TX_DESC
         unsigned short OffloadGsoMssTagc;
     } TxDescDataIpv6Rss_All;
 
-    LOGICAL_ADDRESS BufferAddress;
+    UINT64 BufferAddress;
 
 } RT_TX_DESC;
 
@@ -188,7 +164,7 @@ typedef struct _RT_RX_DESC
         unsigned short IpRssTava;
     } RxDescDataIpv6Rss;
 
-    LOGICAL_ADDRESS BufferAddress;
+    UINT64 BufferAddress;
 } RT_RX_DESC;
 
 typedef struct _RT_TALLY

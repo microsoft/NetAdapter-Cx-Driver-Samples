@@ -18,7 +18,7 @@
 #include "interrupt.h"
 #include "gigamac.h"
 
-#include <preview/netringiterator.h>
+#include "netringiterator.h"
 
 void
 RtUpdateRecvStats(
@@ -60,11 +60,11 @@ RxFillRtl8111DChecksumInfo(
             &rx->ChecksumExtension,
             packetIndex);
 
-    packet->Layout.Layer2Type = NET_PACKET_LAYER2_TYPE_ETHERNET;
+    packet->Layout.Layer2Type = NetPacketLayer2TypeEthernet;
     checksumInfo->Layer2 =
         (rxd->RxDescDataIpv6Rss.status & RXS_CRC)
-        ? NET_PACKET_RX_CHECKSUM_INVALID
-        : NET_PACKET_RX_CHECKSUM_VALID;
+        ? NetPacketRxChecksumEvaluationInvalid
+        : NetPacketRxChecksumEvaluationValid;
 
     USHORT const isIpv4 = rxd->RxDescDataIpv6Rss.IpRssTava & RXS_IPV6RSS_IS_IPV4;
     USHORT const isIpv6 = rxd->RxDescDataIpv6Rss.IpRssTava & RXS_IPV6RSS_IS_IPV6;
@@ -73,19 +73,19 @@ RxFillRtl8111DChecksumInfo(
 
     if (isIpv4)
     {
-        packet->Layout.Layer3Type = NET_PACKET_LAYER3_TYPE_IPV4_UNSPECIFIED_OPTIONS;
+        packet->Layout.Layer3Type = NetPacketLayer3TypeIPv4UnspecifiedOptions;
 
         if (adapter->IpHwChkSum)
         {
             checksumInfo->Layer3 =
                 (rxd->RxDescDataIpv6Rss.status & RXS_IPF)
-                ? NET_PACKET_RX_CHECKSUM_INVALID
-                : NET_PACKET_RX_CHECKSUM_VALID;
+                ? NetPacketRxChecksumEvaluationInvalid
+                : NetPacketRxChecksumEvaluationValid;
         }
     }
     else if (isIpv6)
     {
-        packet->Layout.Layer3Type = NET_PACKET_LAYER3_TYPE_IPV6_UNSPECIFIED_EXTENSIONS;
+        packet->Layout.Layer3Type = NetPacketLayer3TypeIPv6UnspecifiedExtensions;
     }
     else
     {
@@ -99,26 +99,26 @@ RxFillRtl8111DChecksumInfo(
 
     if (isTcp)
     {
-        packet->Layout.Layer4Type = NET_PACKET_LAYER4_TYPE_TCP;
+        packet->Layout.Layer4Type = NetPacketLayer4TypeTcp;
 
         if (adapter->TcpHwChkSum)
         {
             checksumInfo->Layer4 =
                 (rxd->RxDescDataIpv6Rss.IpRssTava & RXS_IPV6RSS_TCPF)
-                ? NET_PACKET_RX_CHECKSUM_INVALID
-                : NET_PACKET_RX_CHECKSUM_VALID;
+                ? NetPacketRxChecksumEvaluationInvalid
+                : NetPacketRxChecksumEvaluationValid;
         }
     }
     else if (isUdp)
     {
-        packet->Layout.Layer4Type = NET_PACKET_LAYER4_TYPE_UDP;
+        packet->Layout.Layer4Type = NetPacketLayer4TypeUdp;
 
         if (adapter->UdpHwChkSum)
         {
             checksumInfo->Layer4 =
                 (rxd->RxDescDataIpv6Rss.IpRssTava & RXS_IPV6RSS_UDPF)
-                ? NET_PACKET_RX_CHECKSUM_INVALID
-                : NET_PACKET_RX_CHECKSUM_VALID;
+                ? NetPacketRxChecksumEvaluationInvalid
+                : NetPacketRxChecksumEvaluationValid;
         }
     }
 }
@@ -138,11 +138,11 @@ RxFillRtl8111EChecksumInfo(
             &rx->ChecksumExtension,
             packetIndex);
 
-    packet->Layout.Layer2Type = NET_PACKET_LAYER2_TYPE_ETHERNET;
+    packet->Layout.Layer2Type = NetPacketLayer2TypeEthernet;
     checksumInfo->Layer2 =
         (rxd->RxDescDataIpv6Rss.status & RXS_CRC)
-        ? NET_PACKET_RX_CHECKSUM_INVALID
-        : NET_PACKET_RX_CHECKSUM_VALID;
+        ? NetPacketRxChecksumEvaluationInvalid
+        : NetPacketRxChecksumEvaluationValid;
 
     USHORT const isIpv4 = rxd->RxDescDataIpv6Rss.IpRssTava & RXS_IPV6RSS_IS_IPV4;
     USHORT const isIpv6 = rxd->RxDescDataIpv6Rss.IpRssTava & RXS_IPV6RSS_IS_IPV6;
@@ -151,19 +151,19 @@ RxFillRtl8111EChecksumInfo(
 
     if (isIpv4)
     {
-        packet->Layout.Layer3Type = NET_PACKET_LAYER3_TYPE_IPV4_UNSPECIFIED_OPTIONS;
+        packet->Layout.Layer3Type = NetPacketLayer3TypeIPv4UnspecifiedOptions;
 
         if (adapter->IpHwChkSum)
         {
             checksumInfo->Layer3 =
                 (rxd->RxDescDataIpv6Rss.status & RXS_IPF)
-                ? NET_PACKET_RX_CHECKSUM_INVALID
-                : NET_PACKET_RX_CHECKSUM_VALID;
+                ? NetPacketRxChecksumEvaluationInvalid
+                : NetPacketRxChecksumEvaluationValid;
         }
     }
     else if (isIpv6)
     {
-        packet->Layout.Layer3Type = NET_PACKET_LAYER3_TYPE_IPV6_UNSPECIFIED_EXTENSIONS;
+        packet->Layout.Layer3Type = NetPacketLayer3TypeIPv6UnspecifiedExtensions;
     }
     else
     {
@@ -177,26 +177,26 @@ RxFillRtl8111EChecksumInfo(
 
     if (isTcp)
     {
-        packet->Layout.Layer4Type = NET_PACKET_LAYER4_TYPE_TCP;
+        packet->Layout.Layer4Type = NetPacketLayer4TypeTcp;
 
         if (adapter->TcpHwChkSum)
         {
             checksumInfo->Layer4 =
                 (rxd->RxDescDataIpv6Rss.TcpUdpFailure & TXS_TCPCS)
-                ? NET_PACKET_RX_CHECKSUM_INVALID
-                : NET_PACKET_RX_CHECKSUM_VALID;
+                ? NetPacketRxChecksumEvaluationInvalid
+                : NetPacketRxChecksumEvaluationValid;
         }
     }
     else if (isUdp)
     {
-        packet->Layout.Layer4Type = NET_PACKET_LAYER4_TYPE_UDP;
+        packet->Layout.Layer4Type = NetPacketLayer4TypeUdp;
 
         if (adapter->UdpHwChkSum)
         {
             checksumInfo->Layer4 =
                 (rxd->RxDescDataIpv6Rss.TcpUdpFailure & TXS_UDPCS)
-                ? NET_PACKET_RX_CHECKSUM_INVALID
-                : NET_PACKET_RX_CHECKSUM_VALID;
+                ? NetPacketRxChecksumEvaluationInvalid
+                : NetPacketRxChecksumEvaluationValid;
         }
     }
 }
@@ -210,6 +210,8 @@ RtFillRxChecksumInfo(
     _Inout_ NET_PACKET *packet
     )
 {
+    packet->Layout = {};
+
     switch (rx->Adapter->ChipType)
     {
     case RTL8168D:
@@ -239,6 +241,7 @@ RxIndicateReceives(
 
         NET_FRAGMENT * fragment = NetFragmentIteratorGetFragment(&fi);
         fragment->ValidLength = rxd->RxDescDataIpv6Rss.length - FRAME_CRC_SIZE;
+        fragment->Offset = 0;
 
         NET_PACKET * packet = NetPacketIteratorGetPacket(&pi);
         packet->FragmentIndex = index;
@@ -264,10 +267,11 @@ void
 RtPostRxDescriptor(
     _In_ RT_RX_DESC * desc,
     _In_ NET_FRAGMENT const * fragment,
+    _In_ NET_FRAGMENT_LOGICAL_ADDRESS const * logicalAddress,
     _In_ UINT16 status
     )
 {
-    desc->BufferAddress = fragment->Mapping.DmaLogicalAddress;
+    desc->BufferAddress = logicalAddress->LogicalAddress;
     desc->RxDescDataIpv6Rss.TcpUdpFailure = 0;
     desc->RxDescDataIpv6Rss.length = fragment->Capacity;
     desc->RxDescDataIpv6Rss.VLAN_TAG.Value = 0;
@@ -289,8 +293,12 @@ RxPostBuffers(
     while (NetFragmentIteratorHasAny(&fi))
     {
         UINT32 const index = NetFragmentIteratorGetIndex(&fi);
+        NET_FRAGMENT_LOGICAL_ADDRESS const * logicalAddress = NetExtensionGetFragmentLogicalAddress(
+            &rx->LogicalAddressExtension, index);
+
         RtPostRxDescriptor(&rx->RxdBase[index],
             NetFragmentIteratorGetFragment(&fi),
+            logicalAddress,
             RXS_OWN | (fr->ElementIndexMask == index ? RXS_EOR : 0));
         NetFragmentIteratorAdvance(&fi);
     }
@@ -330,19 +338,19 @@ Exit:
 
 ULONG
 RtConvertPacketFilterToRcr(
-    _In_ NET_PACKET_FILTER_TYPES_FLAGS packetFilter
+    _In_ NET_PACKET_FILTER_FLAGS packetFilter
     )
 {
-    if (packetFilter & NET_PACKET_FILTER_TYPE_PROMISCUOUS)
+    if (packetFilter & NetPacketFilterFlagPromiscuous)
     {
         return (RCR_AAP | RCR_APM | RCR_AM | RCR_AB | RCR_AR | RCR_AER);
     }
 
     return
-        ((packetFilter & NET_PACKET_FILTER_TYPE_ALL_MULTICAST) ? RCR_AM  : 0) |
-        ((packetFilter & NET_PACKET_FILTER_TYPE_MULTICAST)     ? RCR_AM  : 0) |
-        ((packetFilter & NET_PACKET_FILTER_TYPE_BROADCAST)     ? RCR_AB  : 0) |
-        ((packetFilter & NET_PACKET_FILTER_TYPE_DIRECTED)      ? RCR_APM : 0);
+        ((packetFilter & NetPacketFilterFlagAllMulticast) ? RCR_AM  : 0) |
+        ((packetFilter & NetPacketFilterFlagMulticast)     ? RCR_AM  : 0) |
+        ((packetFilter & NetPacketFilterFlagBroadcast)     ? RCR_AB  : 0) |
+        ((packetFilter & NetPacketFilterFlagDirected)      ? RCR_APM : 0);
 }
 
 _Use_decl_annotations_
@@ -508,15 +516,17 @@ EvtRxQueueCancel(
     // after cancel until all packets are returned to the framework.
     RxIndicateReceives(rx);
 
-    NET_RING * pr = NetRingCollectionGetPacketRing(rx->Rings);
-    for (; pr->BeginIndex != pr->EndIndex;
-        pr->BeginIndex = NetRingIncrementIndex(pr, pr->BeginIndex))
+    NET_RING_PACKET_ITERATOR pi = NetRingGetAllPackets(rx->Rings);
+    while(NetPacketIteratorHasAny(&pi))
     {
-        NetRingGetPacketAtIndex(pr, pr->BeginIndex)->Ignore = 1;
+        NetPacketIteratorGetPacket(&pi)->Ignore = 1;
+        NetPacketIteratorAdvance(&pi);
     }
+    NetPacketIteratorSet(&pi);
 
-    NET_RING * fr = NetRingCollectionGetFragmentRing(rx->Rings);
-    fr->BeginIndex = fr->EndIndex;
+    NET_RING_FRAGMENT_ITERATOR fi = NetRingGetAllFragments(rx->Rings);
+    NetFragmentIteratorAdvanceToTheEnd(&fi);
+    NetFragmentIteratorSet(&fi);
 
     TraceExit();
 }

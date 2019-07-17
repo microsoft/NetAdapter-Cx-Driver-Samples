@@ -12,11 +12,11 @@
 #include "precomp.h"
 
 #include <preview/netadapteroffload.h>
+#include <preview/netadaptercx.h>
 
 #include "trace.h"
 #include "device.h"
 #include "adapter.h"
-#include "oid.h"
 #include "txqueue.h"
 #include "rxqueue.h"
 #include "eeprom.h"
@@ -212,20 +212,38 @@ EvtAdapterCreateTxQueue(
 
 #pragma region Get packet extension offsets
     RT_TXQUEUE *tx = RtGetTxQueueContext(txQueue);
-    NET_PACKET_EXTENSION_QUERY extension;
-    NET_PACKET_EXTENSION_QUERY_INIT(
+    NET_EXTENSION_QUERY extension;
+    NET_EXTENSION_QUERY_INIT(
         &extension,
         NET_PACKET_EXTENSION_CHECKSUM_NAME,
-        NET_PACKET_EXTENSION_CHECKSUM_VERSION_1);
+        NET_PACKET_EXTENSION_CHECKSUM_VERSION_1,
+        NetExtensionTypePacket);
     
     NetTxQueueGetExtension(txQueue, &extension, &tx->ChecksumExtension);
 
-    NET_PACKET_EXTENSION_QUERY_INIT(
+    NET_EXTENSION_QUERY_INIT(
         &extension,
         NET_PACKET_EXTENSION_LSO_NAME,
-        NET_PACKET_EXTENSION_LSO_VERSION_1);
+        NET_PACKET_EXTENSION_LSO_VERSION_1,
+        NetExtensionTypePacket);
 
     NetTxQueueGetExtension(txQueue, &extension, &tx->LsoExtension);
+
+    NET_EXTENSION_QUERY_INIT(
+        &extension,
+        NET_FRAGMENT_EXTENSION_VIRTUAL_ADDRESS_NAME,
+        NET_FRAGMENT_EXTENSION_VIRTUAL_ADDRESS_VERSION_1,
+        NetExtensionTypeFragment);
+
+    NetTxQueueGetExtension(txQueue, &extension, &tx->VirtualAddressExtension);
+
+    NET_EXTENSION_QUERY_INIT(
+        &extension,
+        NET_FRAGMENT_EXTENSION_LOGICAL_ADDRESS_NAME,
+        NET_FRAGMENT_EXTENSION_LOGICAL_ADDRESS_VERSION_1,
+        NetExtensionTypeFragment);
+
+    NetTxQueueGetExtension(txQueue, &extension, &tx->LogicalAddressExtension);
 
 #pragma endregion
 
@@ -279,15 +297,24 @@ EvtAdapterCreateRxQueue(
 #pragma endregion
 
     RT_RXQUEUE *rx = RtGetRxQueueContext(rxQueue);
-    NET_PACKET_EXTENSION_QUERY extension;
-    NET_PACKET_EXTENSION_QUERY_INIT(
+    NET_EXTENSION_QUERY extension;
+    NET_EXTENSION_QUERY_INIT(
         &extension,
         NET_PACKET_EXTENSION_CHECKSUM_NAME,
-        NET_PACKET_EXTENSION_CHECKSUM_VERSION_1);
+        NET_PACKET_EXTENSION_CHECKSUM_VERSION_1,
+        NetExtensionTypePacket);
 
     rx->QueueId = queueId;
 
     NetRxQueueGetExtension(rxQueue, &extension, &rx->ChecksumExtension);
+
+    NET_EXTENSION_QUERY_INIT(
+        &extension,
+        NET_FRAGMENT_EXTENSION_LOGICAL_ADDRESS_NAME,
+        NET_FRAGMENT_EXTENSION_LOGICAL_ADDRESS_VERSION_1,
+        NetExtensionTypeFragment);
+
+    NetRxQueueGetExtension(rxQueue, &extension, &rx->LogicalAddressExtension);
 
 #pragma region Initialize RTL8168D Receive Queue
 
@@ -596,7 +623,7 @@ ComputeCrc(
 
 void
 GetMulticastBit(
-    _In_reads_(ETH_LENGTH_OF_ADDRESS) UCHAR const *address,
+    _In_ NET_ADAPTER_LINK_LAYER_ADDRESS const * address,
     _Out_ _Post_satisfies_(*byte < MAX_NIC_MULTICAST_REG) UCHAR *byte,
     _Out_ UCHAR *value
     )
@@ -610,7 +637,7 @@ Routine Description:
 
 --*/
 {
-    ULONG crc = ComputeCrc(address, ETH_LENGTH_OF_ADDRESS);
+    ULONG crc = ComputeCrc(address->Address, address->Length);
 
     // The bit number is now in the 6 most significant bits of CRC.
     UINT bitNumber = (UINT)((crc >> 26) & 0x3f);
@@ -659,8 +686,7 @@ void RtAdapterPushMulticastList(
     UCHAR multicastRegs[MAX_NIC_MULTICAST_REG] = { 0 };
 
     if (adapter->PacketFilter &
-        (NET_PACKET_FILTER_TYPE_PROMISCUOUS |
-            NET_PACKET_FILTER_TYPE_ALL_MULTICAST))
+        (NetPacketFilterFlagPromiscuous | NetPacketFilterFlagAllMulticast))
     {
         RtlFillMemory(multicastRegs, MAX_NIC_MULTICAST_REG, 0xFF);
     }
@@ -670,7 +696,7 @@ void RtAdapterPushMulticastList(
         for (UINT i = 0; i < adapter->MCAddressCount; i++)
         {
             UCHAR byte, bit;
-            GetMulticastBit(adapter->MCList[i], &byte, &bit);
+            GetMulticastBit(&adapter->MCList[i], &byte, &bit);
             multicastRegs[byte] |= bit;
         }
     }
@@ -816,6 +842,68 @@ RtAdapterUpdateInterruptModeration(
     } WdfSpinLockRelease(adapter->Lock);
 }
 
+void
+EvtSetPacketFilter(
+    _In_ NETADAPTER netAdapter,
+    _In_ NET_PACKET_FILTER_FLAGS PacketFilter
+    )
+{
+    RT_ADAPTER *adapter = RtGetAdapterContext(netAdapter);
+
+    WdfSpinLockAcquire(adapter->Lock); {
+
+        adapter->PacketFilter = PacketFilter;
+        RtAdapterUpdateRcr(adapter);
+
+        // Changing the packet filter might require clearing the active MCList
+        RtAdapterPushMulticastList(adapter);
+
+    } WdfSpinLockRelease(adapter->Lock);
+}
+
+void
+EvtSetMulticastList(
+    _In_ NETADAPTER NetAdapter,
+    _In_ ULONG MulticastAddressCount,
+    _In_ NET_ADAPTER_LINK_LAYER_ADDRESS * MulticastAddressList
+    )
+{
+    RT_ADAPTER *adapter = RtGetAdapterContext(NetAdapter);
+
+    WdfSpinLockAcquire(adapter->Lock); {
+
+        adapter->MCAddressCount = MulticastAddressCount;
+
+        RtlZeroMemory(adapter->MCList,
+        sizeof(NET_ADAPTER_LINK_LAYER_ADDRESS) * RT_MAX_MCAST_LIST);
+
+        if (MulticastAddressCount != 0)
+        {
+            RtlCopyMemory(adapter->MCList,
+                MulticastAddressList,
+                sizeof(NET_ADAPTER_LINK_LAYER_ADDRESS) * MulticastAddressCount);
+        }
+
+        RtAdapterPushMulticastList(adapter);
+
+    } WdfSpinLockRelease(adapter->Lock);
+}
+
+static
+void
+RtAdapterSetMulticastCapabilities(
+    _In_ RT_ADAPTER *adapter
+    )
+{
+    NET_ADAPTER_MULTICAST_CAPABILITIES multicastCapabilities;
+    NET_ADAPTER_MULTICAST_CAPABILITIES_INIT(
+        &multicastCapabilities,
+        RT_MAX_MCAST_LIST,
+        EvtSetMulticastList);
+
+    NetAdapterSetMulticastCapabilities(adapter->NetAdapter, &multicastCapabilities);
+}
+
 static
 void
 RtAdapterSetLinkLayerCapabilities(
@@ -828,16 +916,20 @@ RtAdapterSetLinkLayerCapabilities(
     NET_ADAPTER_LINK_LAYER_CAPABILITIES linkLayerCapabilities;
     NET_ADAPTER_LINK_LAYER_CAPABILITIES_INIT(
         &linkLayerCapabilities,
-        RT_SUPPORTED_FILTERS,
-        RT_MAX_MCAST_LIST,
-        NIC_SUPPORTED_STATISTICS,
         maxXmitLinkSpeed,
         maxRcvLinkSpeed);
+
+    NET_ADAPTER_PACKET_FILTER_CAPABILITIES packetFilterCapabilities;
+    NET_ADAPTER_PACKET_FILTER_CAPABILITIES_INIT(
+        &packetFilterCapabilities,
+        RT_SUPPORTED_FILTERS,
+        EvtSetPacketFilter);
 
     NetAdapterSetLinkLayerCapabilities(adapter->NetAdapter, &linkLayerCapabilities);
     NetAdapterSetLinkLayerMtuSize(adapter->NetAdapter, RT_MAX_PACKET_SIZE - ETH_LENGTH_OF_HEADER);
     NetAdapterSetPermanentLinkLayerAddress(adapter->NetAdapter, &adapter->PermanentAddress);
     NetAdapterSetCurrentLinkLayerAddress(adapter->NetAdapter, &adapter->CurrentAddress);
+    NetAdapterSetPacketFilterCapabilities(adapter->NetAdapter, &packetFilterCapabilities);
 }
 
 static
@@ -872,12 +964,13 @@ RtAdapterSetPowerCapabilities(
     _In_ RT_ADAPTER const *adapter
     )
 {
-    NET_ADAPTER_POWER_CAPABILITIES powerCapabilities;
-    NET_ADAPTER_POWER_CAPABILITIES_INIT(&powerCapabilities);
+    NET_ADAPTER_WAKE_MAGIC_PACKET_CAPABILITIES magicPacketCapabilities;
+    NET_ADAPTER_WAKE_MAGIC_PACKET_CAPABILITIES_INIT(&magicPacketCapabilities);
+    #ifdef _NETWAKESOURCE_2_0_H_
+    magicPacketCapabilities.MagicPacket = TRUE;
+    #endif
 
-    powerCapabilities.SupportedWakePatterns = NET_ADAPTER_WAKE_MAGIC_PACKET;
-
-    NetAdapterSetPowerCapabilities(adapter->NetAdapter, &powerCapabilities);
+    NetAdapterWakeSetMagicPacketCapabilities(adapter->NetAdapter, &magicPacketCapabilities);
 }
 
 static
@@ -893,11 +986,7 @@ RtAdapterSetDatapathCapabilities(
     NET_ADAPTER_TX_CAPABILITIES_INIT_FOR_DMA(
         &txCapabilities,
         &txDmaCapabilities,
-        RT_MAX_FRAGMENT_SIZE,
         1);
-
-    // LSO goes to 64K payload header + extra
-    //sgConfig.MaximumPacketSize = RT_MAX_FRAGMENT_SIZE * RT_MAX_PHYS_BUF_COUNT;
 
     txCapabilities.FragmentRingNumberOfElementsHint = adapter->NumTcb * RT_MAX_PHYS_BUF_COUNT;
     txCapabilities.MaximumNumberOfFragments = RT_MAX_PHYS_BUF_COUNT;
@@ -993,6 +1082,8 @@ RtAdapterStart(
     NTSTATUS status = STATUS_SUCCESS;
 
     RtAdapterSetLinkLayerCapabilities(adapter);
+
+    RtAdapterSetMulticastCapabilities(adapter);
 
     RtAdapterSetReceiveScalingCapabilities(adapter);
 

@@ -80,9 +80,6 @@
     <ClCompile Include="eeprom.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="oid.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="txqueue.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -93,9 +90,6 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="configuration.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="statistics.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="link.cpp">

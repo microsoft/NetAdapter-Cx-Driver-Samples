@@ -126,8 +126,8 @@ EvtDeviceD0Exit(
             NDIS_LINK_SPEED_UNKNOWN,
             MediaConnectStateUnknown,
             MediaDuplexStateUnknown,
-            NetAdapterPauseFunctionsUnknown,
-            NET_ADAPTER_AUTO_NEGOTIATION_NO_FLAGS);
+            NetAdapterPauseFunctionTypeUnknown,
+            NetAdapterAutoNegotiationFlagNone);
 
         NetAdapterSetLinkState(adapter->NetAdapter, &linkState);
 
@@ -149,14 +149,27 @@ EvtDeviceArmWakeFromSx(
 
     TraceEntryRtAdapter(adapter);
 
-    // Use NETPOWERSETTINGS to check if we should enable wake from magic packet
-    NETPOWERSETTINGS powerSettings = NetAdapterGetPowerSettings(adapter->NetAdapter);
-    ULONG enabledWakePatterns = NetPowerSettingsGetEnabledWakePatternFlags(powerSettings);
+    #ifdef _NETWAKESOURCE_2_0_H_
+    // Iterate over the wake source list and look for the wake on magic packet
+    // entry. If the device supports more power capabilities it can expect to
+    // find other types of wake sources.
 
-    if (enabledWakePatterns & NET_ADAPTER_WAKE_MAGIC_PACKET)
+    NET_WAKE_SOURCE_LIST wakeSourceList;
+    NET_WAKE_SOURCE_LIST_INIT(&wakeSourceList);
+
+    NetDeviceGetWakeSourceList(wdfDevice, &wakeSourceList);
+
+    for (SIZE_T i = 0; i < NetWakeSourceListGetCount(&wakeSourceList); i++)
     {
-        RtAdapterEnableMagicPacket(adapter);
+        NETWAKESOURCE wakeSource = NetWakeSourceListGetElement(&wakeSourceList, i);
+        NET_WAKE_SOURCE_TYPE const wakeSourceType = NetWakeSourceGetType(wakeSource);
+
+        if (wakeSourceType == NetWakeSourceTypeMagicPacket)
+        {
+            RtAdapterEnableMagicPacket(adapter);
+        }
     }
+    #endif
 
     TraceExit();
     return STATUS_SUCCESS;

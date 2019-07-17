@@ -106,13 +106,13 @@ typedef struct _RT_ADAPTER
     WDFSPINLOCK Lock;
 
     // Packet Filter and look ahead size.
-    NET_PACKET_FILTER_TYPES_FLAGS PacketFilter;
+    NET_PACKET_FILTER_FLAGS PacketFilter;
     USHORT LinkSpeed;
     NET_IF_MEDIA_DUPLEX_STATE DuplexMode;
 
     // multicast list
     UINT MCAddressCount;
-    UCHAR MCList[RT_MAX_MCAST_LIST][ETH_LENGTH_OF_ADDRESS];
+    NET_ADAPTER_LINK_LAYER_ADDRESS MCList[RT_MAX_MCAST_LIST];
 
     // Packet counts
     ULONG64 InUcastOctets;

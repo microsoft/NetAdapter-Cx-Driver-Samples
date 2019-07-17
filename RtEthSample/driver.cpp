@@ -14,7 +14,6 @@
 #include "trace.h"
 #include "device.h"
 #include "adapter.h"
-#include "oid.h"
 #include "power.h"
 #include "interrupt.h"
 
@@ -85,7 +84,7 @@ EvtDriverDeviceAdd(
     NETADAPTER_INIT * adapterInit = nullptr;
 
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
-        NetAdapterDeviceInitConfig(deviceInit));
+        NetDeviceInitConfig(deviceInit));
 
     WDF_OBJECT_ATTRIBUTES deviceAttributes;
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&deviceAttributes, RT_DEVICE);
@@ -159,9 +158,6 @@ EvtDriverDeviceAdd(
 
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
         RtInitializeAdapterContext(adapter, wdfDevice, netAdapter));
-
-    GOTO_IF_NOT_NT_SUCCESS(Exit, status,
-        RtInitializeAdapterRequestQueue(adapter));
 
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
         RtInterruptCreate(wdfDevice, adapter, &adapter->Interrupt));

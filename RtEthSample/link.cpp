@@ -264,37 +264,37 @@ Return Value:
 {
     TraceEntryRtAdapter(adapter);
 
-    NET_ADAPTER_AUTO_NEGOTIATION_FLAGS autoNegotiationFlags = NET_ADAPTER_AUTO_NEGOTIATION_NO_FLAGS;
+    NET_ADAPTER_AUTO_NEGOTIATION_FLAGS autoNegotiationFlags = NetAdapterAutoNegotiationFlagNone;
 
     if (adapter->LinkAutoNeg)
     {
         autoNegotiationFlags |=
-            NET_ADAPTER_LINK_STATE_XMIT_LINK_SPEED_AUTO_NEGOTIATED |
-            NET_ADAPTER_LINK_STATE_RCV_LINK_SPEED_AUTO_NEGOTIATED |
-            NET_ADAPTER_LINK_STATE_DUPLEX_AUTO_NEGOTIATED;
+            NetAdapterAutoNegotiationFlagXmitLinkSpeedAutoNegotiated |
+            NetAdapterAutoNegotiationFlagRcvLinkSpeedautoNegotiated |
+            NetAdapterAutoNegotiationFlagDuplexAutoNegotiated;
     }
 
     if (adapter->FlowControl != RtFlowControlDisabled)
     {
         autoNegotiationFlags |=
-            NET_ADAPTER_LINK_STATE_PAUSE_FUNCTIONS_AUTO_NEGOTIATED;
+            NetAdapterAutoNegotiationFlagPauseFunctionsAutoNegotiated;
     }
 
-    NET_ADAPTER_PAUSE_FUNCTIONS pauseFunctions = NetAdapterPauseFunctionsUnknown;
+    NET_ADAPTER_PAUSE_FUNCTION_TYPE pauseFunctions = NetAdapterPauseFunctionTypeUnknown;
 
     switch (adapter->FlowControl)
     {
     case RtFlowControlDisabled:
-        pauseFunctions = NetAdapterPauseFunctionsUnsupported;
+        pauseFunctions = NetAdapterPauseFunctionTypeUnsupported;
         break;
     case RtFlowControlRxEnabled:
-        pauseFunctions = NetAdapterPauseFunctionsReceiveOnly;
+        pauseFunctions = NetAdapterPauseFunctionTypeReceiveOnly;
         break;
     case RtFlowControlTxEnabled:
-        pauseFunctions = NetAdapterPauseFunctionsSendOnly;
+        pauseFunctions = NetAdapterPauseFunctionTypeSendOnly;
         break;
     case RtFlowControlTxRxEnabled:
-        pauseFunctions = NetAdapterPauseFunctionsSendAndReceive;
+        pauseFunctions = NetAdapterPauseFunctionTypeSendAndReceive;
         break;
     }
 

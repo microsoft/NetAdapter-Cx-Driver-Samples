@@ -17,7 +17,7 @@
 #include "adapter.h"
 #include "interrupt.h"
 
-#include <preview/netringiterator.h>
+#include "netringiterator.h"
 
 void
 RtUpdateSendStats(
@@ -26,20 +26,22 @@ RtUpdateSendStats(
     )
 {
     NET_PACKET const * packet = NetPacketIteratorGetPacket(pi);
-    if (packet->Layout.Layer2Type != NET_PACKET_LAYER2_TYPE_ETHERNET)
+    if (packet->Layout.Layer2Type != NetPacketLayer2TypeEthernet)
     {
         return;
     }
 
     NET_RING_FRAGMENT_ITERATOR fi = NetPacketIteratorGetFragments(pi);
-    NET_FRAGMENT * fragment = NetFragmentIteratorGetFragment(&fi);
+    NET_FRAGMENT const * fragment = NetFragmentIteratorGetFragment(&fi);
+    NET_FRAGMENT_VIRTUAL_ADDRESS const * virtualAddress = NetExtensionGetFragmentVirtualAddress(
+        &tx->VirtualAddressExtension, packet->FragmentIndex);
     // Ethernet header should be in first fragment
     if (fragment->ValidLength < sizeof(ETHERNET_HEADER))
     {
         return;
     }
 
-    PUCHAR ethHeader = (PUCHAR)fragment->VirtualAddress + fragment->Offset;
+    PUCHAR ethHeader = (PUCHAR)virtualAddress->VirtualAddress + fragment->Offset;
 
     ULONG length = 0;
     while (NetFragmentIteratorHasAny(&fi))
@@ -97,7 +99,7 @@ RtGetPacketLsoMss(
     _In_ UINT32 packetIndex
 )
 {
-    return NetExtensionGetPacketLargeSendSegmentation(extension, packetIndex)->TCP.Mss;
+    return NetExtensionGetPacketLso(extension, packetIndex)->TCP.Mss;
 }
 
 static
@@ -111,26 +113,24 @@ RtGetPacketChecksumSetting(
     NET_PACKET_CHECKSUM* checksumInfo =
         NetExtensionGetPacketChecksum(checksumExtension, packetIndex);
 
-    if (packet->Layout.Layer3Type == NET_PACKET_LAYER3_TYPE_IPV4_NO_OPTIONS ||
-        packet->Layout.Layer3Type == NET_PACKET_LAYER3_TYPE_IPV4_WITH_OPTIONS ||
-        packet->Layout.Layer3Type == NET_PACKET_LAYER3_TYPE_IPV4_UNSPECIFIED_OPTIONS)
+    if (NetPacketIsIpv4(packet))
     {
         // Prioritize layer4 checksum first
-        if (checksumInfo->Layer4 == NET_PACKET_TX_CHECKSUM_REQUIRED)
+        if (checksumInfo->Layer4 == NetPacketTxChecksumActionRequired)
         {
-            if (packet->Layout.Layer4Type == NET_PACKET_LAYER4_TYPE_TCP)
+            if (packet->Layout.Layer4Type == NetPacketLayer4TypeTcp)
             {
                 return TXS_IPV6RSS_TCPCS | TXS_IPV6RSS_IPV4CS;
             }
 
-            if (packet->Layout.Layer4Type == NET_PACKET_LAYER4_TYPE_UDP)
+            if (packet->Layout.Layer4Type == NetPacketLayer4TypeUdp)
             {
                 return TXS_IPV6RSS_UDPCS | TXS_IPV6RSS_IPV4CS;
             }
         }
 
         // If no layer4 checksum is required, then just do layer 3 checksum
-        if (checksumInfo->Layer3 == NET_PACKET_TX_CHECKSUM_REQUIRED)
+        if (checksumInfo->Layer3 == NetPacketTxChecksumActionRequired)
         {
             return TXS_IPV6RSS_IPV4CS;
         }
@@ -138,23 +138,21 @@ RtGetPacketChecksumSetting(
         return 0;
     }
     
-    if (packet->Layout.Layer3Type == NET_PACKET_LAYER3_TYPE_IPV6_NO_EXTENSIONS ||
-        packet->Layout.Layer3Type == NET_PACKET_LAYER3_TYPE_IPV6_WITH_EXTENSIONS ||
-        packet->Layout.Layer3Type == NET_PACKET_LAYER3_TYPE_IPV6_UNSPECIFIED_EXTENSIONS)
+    if (NetPacketIsIpv6(packet))
     {
-        if (checksumInfo->Layer4 == NET_PACKET_TX_CHECKSUM_REQUIRED)
+        if (checksumInfo->Layer4 == NetPacketTxChecksumActionRequired)
         {
             const USHORT layer4HeaderOffset =
                 packet->Layout.Layer2HeaderLength +
                 packet->Layout.Layer3HeaderLength;
 
-            if (packet->Layout.Layer4Type == NET_PACKET_LAYER4_TYPE_TCP)
+            if (packet->Layout.Layer4Type == NetPacketLayer4TypeTcp)
             {
                 return TXS_IPV6RSS_TCPCS | TXS_IPV6RSS_IS_IPV6 |
                     (layer4HeaderOffset << TXS_IPV6RSS_TCPHDR_OFFSET);
             }
 
-            if (packet->Layout.Layer4Type == NET_PACKET_LAYER4_TYPE_UDP)
+            if (packet->Layout.Layer4Type == NetPacketLayer4TypeUdp)
             {
                 return TXS_IPV6RSS_UDPCS | TXS_IPV6RSS_IS_IPV6 |
                     (layer4HeaderOffset << TXS_IPV6RSS_TCPHDR_OFFSET);
@@ -180,27 +178,30 @@ RtProgramOffloadDescriptor(
     UINT16 status = 0;
 
     txd->TxDescDataIpv6Rss_All.OffloadGsoMssTagc = 0;
-    RT_ADAPTER* adapter = tx->Adapter;
+    RT_ADAPTER const * adapter = tx->Adapter;
 
-    if (packet->Layout.Layer4Type == NET_PACKET_LAYER4_TYPE_TCP
-        && RtGetPacketLsoMss(&tx->LsoExtension, packetIndex) > 0)
+    auto const lsoEnabled = tx->LsoExtension.Enabled &&
+        (adapter->LSOv4 == RtLsoOffloadEnabled || adapter->LSOv6 == RtLsoOffloadEnabled);
+
+    auto const checksumEnabled = tx->ChecksumExtension.Enabled &&
+        (adapter->TcpHwChkSum || adapter->IpHwChkSum || adapter->UdpHwChkSum);
+
+    if (packet->Layout.Layer4Type == NetPacketLayer4TypeTcp && lsoEnabled)
     {
-        if (tx->LsoExtension.Enabled &&
-            (adapter->LSOv4 == RtLsoOffloadEnabled || adapter->LSOv6 == RtLsoOffloadEnabled))
+        auto const mss = RtGetPacketLsoMss(&tx->LsoExtension, packetIndex);
+        if (mss > 0)
         {
             status |= RtGetPacketLsoStatusSetting(packet);
-            txd->TxDescDataIpv6Rss_All.OffloadGsoMssTagc =
-                RtGetPacketLsoMss(&tx->LsoExtension, packetIndex) << TXS_IPV6RSS_MSS_OFFSET;
+            txd->TxDescDataIpv6Rss_All.OffloadGsoMssTagc = mss << TXS_IPV6RSS_MSS_OFFSET;
+
+            return status;
         }
     }
-    else
+
+    if (checksumEnabled)
     {
-        if (tx->ChecksumExtension.Enabled &&
-            (adapter->TcpHwChkSum || adapter->IpHwChkSum || adapter->UdpHwChkSum))
-        {
-            txd->TxDescDataIpv6Rss_All.OffloadGsoMssTagc =
-                RtGetPacketChecksumSetting(packet, &tx->ChecksumExtension, packetIndex);
-        }
+        txd->TxDescDataIpv6Rss_All.OffloadGsoMssTagc =
+            RtGetPacketChecksumSetting(packet, &tx->ChecksumExtension, packetIndex);
     }
 
     return status;
@@ -240,8 +241,10 @@ RtPostTxDescriptor(
     // the fragment being posted to populate the hardware descriptor
     UINT32 const index = (packet->FragmentIndex + tcb->NumTxDesc) & fr->ElementIndexMask;
     NET_FRAGMENT const * fragment = NetRingGetFragmentAtIndex(fr, index);
+    NET_FRAGMENT_LOGICAL_ADDRESS const * logicalAddress = NetExtensionGetFragmentLogicalAddress(
+        &tx->LogicalAddressExtension, index);
 
-    txd->BufferAddress = fragment->Mapping.DmaLogicalAddress + fragment->Offset;
+    txd->BufferAddress = logicalAddress->LogicalAddress + fragment->Offset;
     txd->TxDescDataIpv6Rss_All.length = (USHORT)fragment->ValidLength;
     txd->TxDescDataIpv6Rss_All.VLAN_TAG.Value = 0;
 
@@ -302,7 +305,7 @@ RtIsPacketTransferComplete(
             NetFragmentIteratorAdvance(&fi);
         }
         RtUpdateSendStats(tx, pi);
-        fi.Iterator.Rings->Rings[NET_RING_TYPE_FRAGMENT]->BeginIndex
+        fi.Iterator.Rings->Rings[NetRingTypeFragment]->BeginIndex
             = NetFragmentIteratorGetIndex(&fi);
     }
 
@@ -333,7 +336,7 @@ RtTransmitPackets(
                 RtPostTxDescriptor(tx, tcb, packet, NetPacketIteratorGetIndex(&pi));
                 NetFragmentIteratorAdvance(&fi);
             }
-            fi.Iterator.Rings->Rings[NET_RING_TYPE_FRAGMENT]->NextIndex
+            fi.Iterator.Rings->Rings[NetRingTypeFragment]->NextIndex
                 = NetFragmentIteratorGetIndex(&fi);
 
             programmedPackets = true;
@@ -397,11 +400,12 @@ RtTxQueueInitialize(
 
     tx->TPPoll = &adapter->CSRAddress->TPPoll;
     tx->Interrupt = adapter->Interrupt;
-    tx->NumTxDesc = (USHORT)(adapter->NumTcb * RT_MAX_PHYS_BUF_COUNT);
-    
     tx->Rings = NetTxQueueGetRingCollection(txQueue);
 
     NET_RING * pr = NetRingCollectionGetPacketRing(tx->Rings);
+    NET_RING * fr = NetRingCollectionGetFragmentRing(tx->Rings);
+    tx->NumTxDesc = (USHORT)(fr->NumberOfElements > USHORT_MAX ? USHORT_MAX : fr->NumberOfElements);
+
     WDF_OBJECT_ATTRIBUTES tcbAttributes;
     WDF_OBJECT_ATTRIBUTES_INIT(&tcbAttributes);
     tcbAttributes.ParentObject = txQueue;

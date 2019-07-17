@@ -15,7 +15,6 @@
 #include "device.h"
 #include "adapter.h"
 #include "configuration.h"
-#include "statistics.h"
 #include "interrupt.h"
 #include "link.h"
 #include "phy.h"
@@ -232,10 +231,6 @@ RtInitializeHardware(
 
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
         RtRegisterScatterGatherDma(adapter),
-        TraceLoggingRtAdapter(adapter));
-
-    GOTO_IF_NOT_NT_SUCCESS(Exit, status,
-        RtAdapterInitializeStatistics(adapter),
         TraceLoggingRtAdapter(adapter));
 
     // Init the hardware and set up everything
