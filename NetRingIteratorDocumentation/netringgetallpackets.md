@@ -29,7 +29,7 @@ Returns a [**NET_RING_PACKET_ITERATOR**](net_ring_packet_iterator.md) that begin
 
 Client drivers typically call **NetRingGetAllPackets** to begin performing operations on all packets that they own in a packet ring. This might include processing a batch of receives that span all available packets in the ring, or draining the ring during data path cancellation.
 
-For a code example of using this method, see the [Net ring iterator README](readme.md).
+For a code example of using this method, see the [Net ring iterator README](README.md).
 
 ## Requirements
 
@@ -40,7 +40,7 @@ For a code example of using this method, see the [Net ring iterator README](read
 
 ## See Also
 
-[Net ring iterator README](readme.md)
+[Net ring iterator README](README.md)
 
 [**NET_RING_COLLECTION**](https://docs.microsoft.com/windows-hardware/drivers/ddi/ringcollection/ns-ringcollection-_net_ring_collection)
 

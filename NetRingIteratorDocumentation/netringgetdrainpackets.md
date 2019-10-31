@@ -29,7 +29,7 @@ Returns a [**NET_RING_PACKET_ITERATOR**](net_ring_packet_iterator.md) that begin
 
 Client drivers typically call this method to begin the process of draining packets from the packet ring to the OS. Drivers later complete this process by calling [**NetPacketIteratorSet**](netpacketiteratorset.md).
 
-For a code example of posting packets, see the [Net ring iterator README](readme.md).
+For a code example of posting packets, see the [Net ring iterator README](README.md).
 
 ## Requirements
 
@@ -40,7 +40,7 @@ For a code example of posting packets, see the [Net ring iterator README](readme
 
 ## See Also
 
-[Net ring iterator README](readme.md)
+[Net ring iterator README](README.md)
 
 [**NET_RING_COLLECTION**](https://docs.microsoft.com/windows-hardware/drivers/ddi/ringcollection/ns-ringcollection-_net_ring_collection)
 

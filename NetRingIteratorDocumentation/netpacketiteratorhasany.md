@@ -38,6 +38,6 @@ Client drivers can call **NetPacketIteratorHasAny** to test if the iterator has 
 
 ## See Also
 
-[Net ring iterator README](readme.md)
+[Net ring iterator README](README.md)
 
 [**NET_RING_PACKET_ITERATOR**](net_ring_packet_iterator.md)

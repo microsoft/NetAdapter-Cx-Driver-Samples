@@ -34,7 +34,7 @@ Returns a pointer to the [**NET_PACKET**](https://docs.microsoft.com/windows-har
 
 ## See Also
 
-[Net ring iterator README](readme.md)
+[Net ring iterator README](README.md)
 
 [**NET_RING_PACKET_ITERATOR**](net_ring_packet_iterator.md)
 

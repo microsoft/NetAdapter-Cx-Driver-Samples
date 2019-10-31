@@ -29,7 +29,7 @@ Returns a [**NET_RING_PACKET_ITERATOR**](net_ring_packet_iterator.md) that begin
 
 Client drivers typically call this method to begin the process of posting packets to hardware. Drivers later complete this process by calling [**NetPacketIteratorSet**](netpacketiteratorset.md).
 
-For a code example of posting packets, see the [Net ring iterator README](readme.md).
+For a code example of posting packets, see the [Net ring iterator README](README.md).
 
 ## Requirements
 

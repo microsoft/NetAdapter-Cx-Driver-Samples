@@ -34,7 +34,7 @@ Returns a pointer to the [**NET_FRAGMENT**](https://docs.microsoft.com/windows-h
 
 ## See Also
 
-[Net ring iterator README](readme.md)
+[Net ring iterator README](README.md)
 
 [**NET_FRAGMENT**](https://docs.microsoft.com/windows-hardware/drivers/ddi/fragment/ns-fragment-_net_fragment)
 

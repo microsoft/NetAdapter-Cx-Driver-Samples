@@ -29,7 +29,7 @@ None.
 
 **NetPacketIteratorSet** sets the packet iterator's **IndexToSet** to its **Index**, which indicates to the OS that the client driver has finished processing the packets from **IndexToSet** to **Index - 1** inclusive. Client drivers call this method to finish posting packets to hardware, or to finish draining packets to the OS.
 
-For a code example of draining packets back to the OS, see [Net ring iterator README](readme.md).
+For a code example of draining packets back to the OS, see [Net ring iterator README](README.md).
 
 ## Requirements
 
@@ -40,6 +40,6 @@ For a code example of draining packets back to the OS, see [Net ring iterator RE
 
 ## See Also
 
-[Net ring iterator README](readme.md)
+[Net ring iterator README](README.md)
 
 [**NET_RING_PACKET_ITERATOR**](net_ring_packet_iterator.md)

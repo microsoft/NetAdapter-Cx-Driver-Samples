@@ -61,7 +61,7 @@ NetAdapterCx client drivers should not use the **NET_RING_ITERATOR** structure d
 
 ## See Also
 
-[Net ring iterator README](readme.md)
+[Net ring iterator README](README.md)
 
 [**NET_RING_PACKET_ITERATOR*](net_ring_packet_iterator.md)
 

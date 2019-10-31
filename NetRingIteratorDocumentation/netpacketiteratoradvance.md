@@ -38,6 +38,6 @@ If the packet iterator's current **Index** is at the end of the packet ring, thi
 
 ## See Also
 
-[Net ring iterator README](readme.md)
+[Net ring iterator README](README.md)
 
 [**NET_RING_PACKET_ITERATOR**](net_ring_packet_iterator.md)

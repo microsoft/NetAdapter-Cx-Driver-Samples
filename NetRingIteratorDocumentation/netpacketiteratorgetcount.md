@@ -36,6 +36,6 @@ Returns the number of packets between this packet iterator's current **Index** a
 
 ## See Also
 
-[Net ring iterator README](readme.md)
+[Net ring iterator README](README.md)
 
 [**NET_RING_PACKET_ITERATOR**](net_ring_packet_iterator.md)

@@ -29,7 +29,7 @@ Returns a [**NET_RING_FRAGMENT_ITERATOR**](net_ring_fragment_iterator.md) that b
 
 Client drivers typically call **NetRingGetPostFragments** to begin the process of posting fragments to hardware for receiving (Rx). Drivers later complete this process by calling [**NetFragmentIteratorSet**](netfragmentiteratorset.md).
 
-For a code example of posting fragments to hardware for Rx, see the [Net ring iterator README](readme.md).
+For a code example of posting fragments to hardware for Rx, see the [Net ring iterator README](README.md).
 
 ## Requirements
 
@@ -40,7 +40,7 @@ For a code example of posting fragments to hardware for Rx, see the [Net ring it
 
 ## See Also
 
-[Net ring iterator README](readme.md)
+[Net ring iterator README](README.md)
 
 [**NET_RING_COLLECTION**](https://docs.microsoft.com/windows-hardware/drivers/ddi/ringcollection/ns-ringcollection-_net_ring_collection)
 

@@ -38,6 +38,6 @@ Client drivers can call **NetFragmentIteratorHasAny** to test if the iterator ha
 
 ## See Also
 
-[Net ring iterator README](readme.md)
+[Net ring iterator README](README.md)
 
 [**NET_RING_FRAGMENT_ITERATOR**](net_ring_fragment_iterator.md)
