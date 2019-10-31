@@ -7,6 +7,14 @@
 
 The **NetPacketIteratorHasAny** method determines whether a packet iterator has any valid elements to process in the packet ring.
 
+## Syntax
+
+```C++
+BOOLEAN NetPacketIteratorHasAny(
+  NET_RING_PACKET_ITERATOR const *Iterator
+);
+```
+
 ## Parameters
 
 ### Iterator
@@ -20,6 +28,13 @@ Returns **TRUE** if the iterator's **Index** does not equal its **End** index. I
 ## Remarks
 
 Client drivers can call **NetPacketIteratorHasAny** to test if the iterator has any valid elements to process. This method can be used to verify a packet before processing it, or it can be used as a test condition for a loop when the driver is processing multiple packets in a batch.
+
+## Requirements
+
+| | |
+| --- | --- |
+| Header | netringiterator.h |
+| IRQL | Any level as long as target memory is resident |
 
 ## See Also
 

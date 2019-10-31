@@ -7,6 +7,14 @@
 
 The **NetRingGetPostPackets** method gets a packet iterator for the post subsection of a packet ring.
 
+## Syntax
+
+```C++
+NET_RING_PACKET_ITERATOR NetRingGetPostPackets(
+  NET_RING_COLLECTION const *Rings
+);
+```
+
 ## Parameters
 
 ### Rings
@@ -22,6 +30,13 @@ Returns a [**NET_RING_PACKET_ITERATOR**](net_ring_packet_iterator.md) that begin
 Client drivers typically call this method to begin the process of posting packets to hardware. Drivers later complete this process by calling [**NetPacketIteratorSet**](netpacketiteratorset.md).
 
 For a code example of posting packets, see the [Net ring iterator README](readme.md).
+
+## Requirements
+
+| | |
+| --- | --- |
+| Header | netringiterator.h |
+| IRQL | Any level as long as target memory is resident |
 
 ## See Also
 

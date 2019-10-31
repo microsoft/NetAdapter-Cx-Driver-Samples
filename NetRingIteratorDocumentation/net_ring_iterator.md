@@ -6,6 +6,27 @@
 
 A **NET_RING_ITERATOR** is a small structure that contains references to the post and drain indices of a [**NET_RING**](https://docs.microsoft.com/windows-hardware/drivers/ddi/ring/ns-ring-_net_ring) to which it belongs.
 
+## Syntax
+
+```C++
+typedef struct _NET_RING_ITERATOR
+{
+
+    NET_RING_COLLECTION const *
+        Rings;
+
+    UINT32* const
+        IndexToSet;
+
+    UINT32
+        Index;
+
+    UINT32 const
+        End;
+
+} NET_RING_ITERATOR;
+```
+
 ## Fields
 
 ### Rings
@@ -31,6 +52,12 @@ The end of the range of elements in the net ring that is covered by this iterato
 ## Remarks
 
 NetAdapterCx client drivers should not use the **NET_RING_ITERATOR** structure directly. Instead, they should either use a [**NET_RING_PACKET_ITERATOR*](net_ring_packet_iterator.md) for a packet ring or a [**NET_RING_FRAGMENT_ITERATOR**](net_ring_fragment_iterator.md) for a fragment ring.
+
+## Requirements
+
+| | |
+| --- | --- |
+| Header | netringiterator.h |
 
 ## See Also
 

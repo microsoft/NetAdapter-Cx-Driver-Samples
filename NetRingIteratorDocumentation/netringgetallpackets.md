@@ -7,6 +7,14 @@
 
 The **NetRingGetAllPackets** method gets a packet iterator for the entire range that a client driver owns in a packet ring.
 
+## Syntax
+
+```C++
+NET_RING_PACKET_ITERATOR NetRingGetAllPackets(
+  NET_RING_COLLECTION const *Rings
+);
+```
+
 ## Parameters
 
 ### Rings
@@ -22,6 +30,13 @@ Returns a [**NET_RING_PACKET_ITERATOR**](net_ring_packet_iterator.md) that begin
 Client drivers typically call **NetRingGetAllPackets** to begin performing operations on all packets that they own in a packet ring. This might include processing a batch of receives that span all available packets in the ring, or draining the ring during data path cancellation.
 
 For a code example of using this method, see the [Net ring iterator README](readme.md).
+
+## Requirements
+
+| | |
+| --- | --- |
+| Header | netringiterator.h |
+| IRQL | Any level as long as target memory is resident |
 
 ## See Also
 

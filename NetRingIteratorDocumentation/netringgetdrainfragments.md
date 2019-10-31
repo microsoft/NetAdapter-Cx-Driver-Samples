@@ -7,6 +7,14 @@
 
 The **NetRingGetDrainFragments** method gets a fragment iterator for the current drain subsection of a fragment ring.
 
+## Syntax
+
+```C++
+NET_RING_FRAGMENT_ITERATOR NetRingGetDrainFragments(
+  NET_RING_COLLECTION const *Rings
+);
+```
+
 ## Parameters
 
 ### Rings
@@ -22,6 +30,13 @@ Returns a [**NET_RING_FRAGMENT_ITERATOR**](net_ring_fragment_iterator.md) that b
 Client drivers call **NetRingGetDrainFragments** to begin the process of draining receive (Rx) fragments from the ring to the OS.
 
 For a code example of draining fragments from the ring back to the OS, see the [Net ring iterator README](readme.md).
+
+## Requirements
+
+| | |
+| --- | --- |
+| Header | netringiterator.h |
+| IRQL | Any level as long as target memory is resident |
 
 ## See Also
 

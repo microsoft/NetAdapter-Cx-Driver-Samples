@@ -7,6 +7,14 @@
 
 The **NetPacketIteratorAdvanceToTheEnd** method advances the current **Index** of a packet iterator to its **End** index.
 
+## Syntax
+
+```C++
+void NetPacketIteratorAdvanceToTheEnd(
+  NET_RING_PACKET_ITERATOR *Iterator
+);
+```
+
 ## Parameters
 
 ### Iterator
@@ -24,6 +32,13 @@ After calling **NetPacketIteratorAdvanceToTheEnd**, the packet iterator's curren
 Client drivers typically call **NetPacketIteratorAdvanceToTheEnd** to cancel all packets in the ring or perform other operations that drain all the ring's packets.
 
 For a code example of using this method, see [Net ring iterator README](readme.md).
+
+## Requirements
+
+| | |
+| --- | --- |
+| Header | netringiterator.h |
+| IRQL | Any level as long as target memory is resident |
 
 ## See Also
 

@@ -7,6 +7,14 @@
 
 The **NetPacketIteratorGetFragments** method gets the fragments associated with a packet.
 
+## Syntax
+
+```C++
+NET_RING_FRAGMENT_ITERATOR NetPacketIteratorGetFragments(
+  NET_RING_PACKET_ITERATOR const *Iterator
+);
+```
+
 ## Parameters
 
 ### Iterator
@@ -22,6 +30,13 @@ Returns a [**NET_RING_FRAGMENT_ITERATOR**](net_ring_fragment_iterator.md) that b
 Client drivers typically call NetPacketIteratorGetFragments to begin the process of posting fragments to hardware for transmitting (Tx).
 
 For a code example of posting fragments to hardware for Tx, see the [Net ring iterator README](readme.md).
+
+## Requirements
+
+| | |
+| --- | --- |
+| Header | netringiterator.h |
+| IRQL | Any level as long as target memory is resident |
 
 ## See Also
 

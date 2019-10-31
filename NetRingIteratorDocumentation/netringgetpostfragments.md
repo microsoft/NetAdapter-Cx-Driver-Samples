@@ -7,6 +7,14 @@
 
 The **NetRingGetPostFragments** method gets a fragment iterator for the current post subsection of a fragment ring.
 
+## Syntax
+
+```C++
+NET_RING_FRAGMENT_ITERATOR NetRingGetPostFragments(
+  NET_RING_COLLECTION const *Rings
+);
+```
+
 ## Parameters
 
 ### Rings
@@ -22,6 +30,13 @@ Returns a [**NET_RING_FRAGMENT_ITERATOR**](net_ring_fragment_iterator.md) that b
 Client drivers typically call **NetRingGetPostFragments** to begin the process of posting fragments to hardware for receiving (Rx). Drivers later complete this process by calling [**NetFragmentIteratorSet**](netfragmentiteratorset.md).
 
 For a code example of posting fragments to hardware for Rx, see the [Net ring iterator README](readme.md).
+
+## Requirements
+
+| | |
+| --- | --- |
+| Header | netringiterator.h |
+| IRQL | Any level as long as target memory is resident |
 
 ## See Also
 
