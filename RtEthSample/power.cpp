@@ -149,7 +149,6 @@ EvtDeviceArmWakeFromSx(
 
     TraceEntryRtAdapter(adapter);
 
-    #ifdef _NETWAKESOURCE_2_0_H_
     // Iterate over the wake source list and look for the wake on magic packet
     // entry. If the device supports more power capabilities it can expect to
     // find other types of wake sources.
@@ -169,7 +168,6 @@ EvtDeviceArmWakeFromSx(
             RtAdapterEnableMagicPacket(adapter);
         }
     }
-    #endif
 
     TraceExit();
     return STATUS_SUCCESS;

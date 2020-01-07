@@ -425,7 +425,7 @@ EvtRxQueueStop(
 
     WdfSpinLockAcquire(rx->Adapter->Lock);
 
-    bool count = 0;
+    size_t count = 0;
     for (size_t i = 0; i < ARRAYSIZE(rx->Adapter->RxQueues); i++)
     {
         if (rx->Adapter->RxQueues[i])
