@@ -966,9 +966,7 @@ RtAdapterSetPowerCapabilities(
 {
     NET_ADAPTER_WAKE_MAGIC_PACKET_CAPABILITIES magicPacketCapabilities;
     NET_ADAPTER_WAKE_MAGIC_PACKET_CAPABILITIES_INIT(&magicPacketCapabilities);
-    #ifdef _NETWAKESOURCE_2_0_H_
     magicPacketCapabilities.MagicPacket = TRUE;
-    #endif
 
     NetAdapterWakeSetMagicPacketCapabilities(adapter->NetAdapter, &magicPacketCapabilities);
 }
