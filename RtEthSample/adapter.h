@@ -14,8 +14,6 @@
 typedef struct _RT_INTERRUPT RT_INTERRUPT;
 typedef struct _RT_TALLY RT_TALLY;
 
-#pragma region Setting Enumerations
-
 typedef enum _RT_DUPLEX_STATE : UCHAR {
     RtDuplexNone = 0,
     RtDuplexHalf = 1,
@@ -79,8 +77,6 @@ typedef enum _RT_SPEED_DUPLEX_MODE {
 
 } RT_SPEED_DUPLEX_MODE;
 
-#pragma endregion
-
 // Context for NETADAPTER
 typedef struct _RT_ADAPTER
 {
@@ -89,8 +85,8 @@ typedef struct _RT_ADAPTER
     WDFDEVICE WdfDevice;
 
     // Handle to default Tx and Rx Queues
-    NETPACKETQUEUE TxQueue;
-    NETPACKETQUEUE RxQueues[RT_NUMBER_OF_QUEUES];
+    NETPACKETQUEUE TxQueues[RT_NUMBER_OF_TX_QUEUES];
+    NETPACKETQUEUE RxQueues[RT_NUMBER_OF_RX_QUEUES];
 
     // Pointer to interrupt object
     RT_INTERRUPT *Interrupt;
@@ -190,7 +186,6 @@ typedef struct _RT_ADAPTER
 
     RT_LSO_OFFLOAD LSOv4;
     RT_LSO_OFFLOAD LSOv6;
-    bool RssEnabled;
 } RT_ADAPTER;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(RT_ADAPTER, RtGetAdapterContext);

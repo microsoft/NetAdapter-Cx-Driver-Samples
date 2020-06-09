@@ -17,19 +17,19 @@ typedef struct _RT_INTERRUPT
     WDFINTERRUPT Handle;
 
     // Armed Notifications
-    LONG RxNotifyArmed[RT_NUMBER_OF_QUEUES];
+    LONG RxNotifyArmed[RT_NUMBER_OF_RX_QUEUES];
     LONG TxNotifyArmed;
 
 
     union {
         volatile UINT16 * Address16;
         volatile UINT8 * Address8;
-    } Isr[RT_NUMBER_OF_QUEUES];
+    } Isr[RT_NUMBER_OF_RX_QUEUES];
 
     union {
         volatile UINT16 * Address16;
         volatile UINT8 * Address8;
-    } Imr[RT_NUMBER_OF_QUEUES];
+    } Imr[RT_NUMBER_OF_RX_QUEUES];
 
     // Fired Notificiations
     // Tracks un-served ISR interrupt fields. Masks in only
@@ -40,7 +40,7 @@ typedef struct _RT_INTERRUPT
     ULONG64 NumInterrupts;
     ULONG64 NumInterruptsNotOurs;
     ULONG64 NumInterruptsDisabled;
-    ULONG64 NumRxInterrupts[RT_NUMBER_OF_QUEUES];
+    ULONG64 NumRxInterrupts[RT_NUMBER_OF_RX_QUEUES];
     ULONG64 NumTxInterrupts;
 } RT_INTERRUPT;
 

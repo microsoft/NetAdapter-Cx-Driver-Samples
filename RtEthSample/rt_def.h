@@ -17,8 +17,6 @@
 
 #pragma once
 
-#pragma region Bit Definitions
-
 #define BIT_0       0x0001
 #define BIT_1       0x0002
 #define BIT_2       0x0004
@@ -52,20 +50,12 @@
 #define BIT_30      0x40000000
 #define BIT_31      0x80000000
 
-#pragma endregion
-
-#pragma region Standards Limits
-
 #define FRAME_CRC_SIZE 4
 #define VLAN_HEADER_SIZE 4
 #define RSVD_BUF_SIZE 8
 
 // Ethernet Frame Sizes
 #define ETHERNET_ADDRESS_LENGTH         6
-
-#pragma endregion
-
-#pragma region Hardware Limits
 
 // packet and header sizes
 #define RT_MAX_PACKET_SIZE (1514)
@@ -76,10 +66,6 @@
 
 // Phy related constants
 #define PHY_RESET_TIME        (1250 * 4) // (1250 * 4 *100 = 500000) phy reset should complete within 500ms (from spec)
-
-#pragma endregion
-
-#pragma region Software Limits
 
 // max number of physical fragments supported per TCB
 #define RT_MAX_PHYS_BUF_COUNT 16
@@ -96,17 +82,9 @@
 // compact receive scaling indirection table
 #define RT_INDIRECTION_TABLE_SIZE 8
 
-#pragma endregion
-
-#pragma region Error Codes
-
 // Error log definitions
 #define ERRLOG_OUT_OF_SG_RESOURCES      0x00000409L
 #define ERRLOG_NO_MEMORY_RESOURCE       0x00000605L
-
-#pragma endregion
-
-#pragma region Capabilities
 
 // supported filters
 #define RT_SUPPORTED_FILTERS (          \
@@ -116,11 +94,8 @@
     NetPacketFilterFlagPromiscuous | \
     NetPacketFilterFlagAllMulticast)
 
-#define RT_NUMBER_OF_QUEUES 4
-
-#pragma endregion
-
-#pragma region Hardware Memory Descriptors
+#define RT_NUMBER_OF_TX_QUEUES 2
+#define RT_NUMBER_OF_RX_QUEUES 4
 
 typedef struct _RT_TAG_802_1Q
 {
@@ -183,10 +158,6 @@ typedef struct _RT_TALLY
     USHORT TxAbt;
     USHORT TxUndrn; //only possible on jumbo frames
 } RT_TALLY;
-
-#pragma endregion
-
-#pragma region Control Block
 
 #pragma pack(1)
 
@@ -350,10 +321,6 @@ static_assert(sizeof(RT_MAC) == 0x100, "Size of RT_MAC is specified by hardware"
 
 #pragma pack()
 
-#pragma endregion
-
-#pragma region Register Constants
-
 // MulticastReg7: 0x8
 #define MAX_NIC_MULTICAST_REG 8
 
@@ -369,6 +336,7 @@ static_assert(sizeof(RT_MAC) == 0x100, "Size of RT_MAC is specified by hardware"
 
 // TPPoll: 0x38
 #define TPPoll_NPQ 0x40 // normal priority queue polling
+#define TPPoll_HPQ 0x80 // high priority queue polling
 
 // IMR: 0x3C, ISR: 0x3E
 #define ISRIMR_ROK      BIT_0
@@ -504,10 +472,6 @@ typedef enum _RT_PHY_REG
 #define CPCR_INT_MITI_TIMER_UNIT_0 BIT_0
 #define CPCR_DISABLE_INT_MITI_PKT_NUM BIT_7
 
-#pragma endregion
-
-#pragma region Descriptor Constants
-
 // Receive status
 #define RXS_OWN      BIT_15
 #define RXS_EOR      BIT_14
@@ -581,4 +545,3 @@ typedef enum _RT_PHY_REG
 #define RSS_MULTI_CPU_ENABLE (1<<16)
 #define RSS_MULTI_CPU_DISABLE (0)
 
-#pragma endregion

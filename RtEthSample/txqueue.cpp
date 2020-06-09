@@ -16,7 +16,6 @@
 #include "trace.h"
 #include "adapter.h"
 #include "interrupt.h"
-
 #include "netringiterator.h"
 
 void
@@ -80,6 +79,10 @@ RtGetPacketLsoStatusSetting(
         packet->Layout.Layer2HeaderLength +
         packet->Layout.Layer3HeaderLength;
 
+    NT_ASSERT(packet->Layout.Layer2HeaderLength != 0U);
+    NT_ASSERT(packet->Layout.Layer3HeaderLength != 0U);
+    NT_ASSERT(layer4HeaderOffset < 0xff);
+
     if (NetPacketIsIpv4(packet))
     {
         return TXS_IPV6RSS_GTSEN_IPV4 | (USHORT)(layer4HeaderOffset << TXS_IPV4RSS_TCPHDR_OFFSET);
@@ -103,6 +106,16 @@ RtGetPacketLsoMss(
 }
 
 static
+bool
+RtGetPacketIeee8021pTag(
+    _In_ const NET_EXTENSION * extension,
+    _In_ UINT32 packetIndex
+)
+{
+    return NetExtensionGetPacketIeee8021Q(extension, packetIndex)->Ieee8021pTag;
+}
+
+static
 USHORT
 RtGetPacketChecksumSetting(
     _In_ NET_PACKET const * packet,
@@ -118,6 +131,15 @@ RtGetPacketChecksumSetting(
         // Prioritize layer4 checksum first
         if (checksumInfo->Layer4 == NetPacketTxChecksumActionRequired)
         {
+
+            const USHORT layer4HeaderOffset =
+                packet->Layout.Layer2HeaderLength +
+                packet->Layout.Layer3HeaderLength;
+
+            NT_ASSERT(packet->Layout.Layer2HeaderLength != 0U);
+            NT_ASSERT(packet->Layout.Layer3HeaderLength != 0U);
+            NT_ASSERT(layer4HeaderOffset < 0xff);
+
             if (packet->Layout.Layer4Type == NetPacketLayer4TypeTcp)
             {
                 return TXS_IPV6RSS_TCPCS | TXS_IPV6RSS_IPV4CS;
@@ -145,6 +167,10 @@ RtGetPacketChecksumSetting(
             const USHORT layer4HeaderOffset =
                 packet->Layout.Layer2HeaderLength +
                 packet->Layout.Layer3HeaderLength;
+
+            NT_ASSERT(packet->Layout.Layer2HeaderLength != 0U);
+            NT_ASSERT(packet->Layout.Layer3HeaderLength != 0U);
+            NT_ASSERT(layer4HeaderOffset < 0xff);
 
             if (packet->Layout.Layer4Type == NetPacketLayer4TypeTcp)
             {
@@ -186,6 +212,8 @@ RtProgramOffloadDescriptor(
     auto const checksumEnabled = tx->ChecksumExtension.Enabled &&
         (adapter->TcpHwChkSum || adapter->IpHwChkSum || adapter->UdpHwChkSum);
 
+    auto const ieee8021qEnabled = tx->Ieee8021qExtension.Enabled;
+
     if (packet->Layout.Layer4Type == NetPacketLayer4TypeTcp && lsoEnabled)
     {
         auto const mss = RtGetPacketLsoMss(&tx->LsoExtension, packetIndex);
@@ -202,6 +230,12 @@ RtProgramOffloadDescriptor(
     {
         txd->TxDescDataIpv6Rss_All.OffloadGsoMssTagc =
             RtGetPacketChecksumSetting(packet, &tx->ChecksumExtension, packetIndex);
+    }
+
+    if (ieee8021qEnabled)
+    {
+        txd->TxDescDataIpv6Rss_All.VLAN_TAG.TagHeader.Priority =
+            RtGetPacketIeee8021pTag(&tx->Ieee8021qExtension, packetIndex);
     }
 
     return status;
@@ -263,7 +297,8 @@ RtFlushTransation(
     )
 {
     MemoryBarrier();
-    *tx->TPPoll = TPPoll_NPQ;
+
+    *tx->TPPoll = tx->Priority;
 }
 
 static
@@ -478,15 +513,25 @@ EvtTxQueueStart(
 
     PHYSICAL_ADDRESS pa = WdfCommonBufferGetAlignedLogicalAddress(tx->TxdArray);
 
-    // let hardware know where transmit descriptors are at
-    adapter->CSRAddress->TNPDSLow = pa.LowPart;
-    adapter->CSRAddress->TNPDSHigh = pa.HighPart;
+    switch (tx->Priority)
+    {
+    case TPPoll_NPQ:
+        adapter->CSRAddress->TNPDSLow = pa.LowPart;
+        adapter->CSRAddress->TNPDSHigh = pa.HighPart;
+        break;
 
+    case TPPoll_HPQ:
+        adapter->CSRAddress->THPDSLow = pa.LowPart;
+        adapter->CSRAddress->THPDSHigh = pa.HighPart;
+        break;
+    }
+
+    // XXX we need to only enable TE on "last" queue
     adapter->CSRAddress->CmdReg |= CR_TE;
 
     // data sheet says TCR should only be modified after the transceiver is enabled
     adapter->CSRAddress->TCR = (TCR_RCR_MXDMA_UNLIMITED << TCR_MXDMA_OFFSET) | (TCR_IFG0 | TCR_IFG1 | TCR_BIT0);
-    adapter->TxQueue = txQueue;
+    adapter->TxQueues[tx->QueueId] = txQueue;
 
     WdfSpinLockRelease(adapter->Lock);
 }
@@ -501,10 +546,22 @@ EvtTxQueueStop(
 
     WdfSpinLockAcquire(tx->Adapter->Lock);
 
-    tx->Adapter->CSRAddress->CmdReg &= ~CR_TE;
+    size_t count = 0;
+    for (size_t i = 0; i < ARRAYSIZE(tx->Adapter->TxQueues); i++)
+    {
+        if (tx->Adapter->TxQueues[i] != WDF_NO_HANDLE)
+        {
+            count++;
+        }
+    }
 
-    RtTxQueueSetInterrupt(tx, false);
-    tx->Adapter->TxQueue = WDF_NO_HANDLE;
+    if (1 == count)
+    {
+        tx->Adapter->CSRAddress->CmdReg &= ~CR_TE;
+        RtTxQueueSetInterrupt(tx, false);
+    }
+
+    tx->Adapter->TxQueues[tx->QueueId] = WDF_NO_HANDLE;
 
     WdfSpinLockRelease(tx->Adapter->Lock);
 }

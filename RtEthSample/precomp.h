@@ -22,6 +22,8 @@
 #include <net/logicaladdress.h>
 #include <net/lso.h>
 #include <net/virtualaddress.h>
+#include <net\databuffer.h>
+#include <net/ieee8021q.h>
 
 // Avoid putting user headers into the precomp header.
 // Exceptions here include:

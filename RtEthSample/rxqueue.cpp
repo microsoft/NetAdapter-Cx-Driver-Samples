@@ -17,7 +17,6 @@
 #include "adapter.h"
 #include "interrupt.h"
 #include "gigamac.h"
-
 #include "netringiterator.h"
 
 void
@@ -231,6 +230,7 @@ RxIndicateReceives(
 {
     NET_RING_FRAGMENT_ITERATOR fi = NetRingGetDrainFragments(rx->Rings);
     NET_RING_PACKET_ITERATOR pi = NetRingGetAllPackets(rx->Rings);
+
     while (NetFragmentIteratorHasAny(&fi))
     {
         UINT32 index = NetFragmentIteratorGetIndex(&fi);
@@ -241,6 +241,7 @@ RxIndicateReceives(
 
         NET_FRAGMENT * fragment = NetFragmentIteratorGetFragment(&fi);
         fragment->ValidLength = rxd->RxDescDataIpv6Rss.length - FRAME_CRC_SIZE;
+        fragment->Capacity = fragment->ValidLength;
         fragment->Offset = 0;
 
         NET_PACKET * packet = NetPacketIteratorGetPacket(&pi);
@@ -257,6 +258,7 @@ RxIndicateReceives(
 
         NetFragmentIteratorAdvance(&fi);
         NetPacketIteratorAdvance(&pi);
+        NetDataBufferReturn(NetRingCollectionGetDataBufferRing(rx->Rings), 1);
     }
     NetFragmentIteratorSet(&fi);
     NetPacketIteratorSet(&pi);
@@ -267,11 +269,11 @@ void
 RtPostRxDescriptor(
     _In_ RT_RX_DESC * desc,
     _In_ NET_FRAGMENT const * fragment,
-    _In_ NET_FRAGMENT_LOGICAL_ADDRESS const * logicalAddress,
+    _In_ UINT64 const logicalAddress,
     _In_ UINT16 status
     )
 {
-    desc->BufferAddress = logicalAddress->LogicalAddress;
+    desc->BufferAddress = logicalAddress;
     desc->RxDescDataIpv6Rss.TcpUdpFailure = 0;
     desc->RxDescDataIpv6Rss.length = fragment->Capacity;
     desc->RxDescDataIpv6Rss.VLAN_TAG.Value = 0;
@@ -288,18 +290,24 @@ RxPostBuffers(
     )
 {
     NET_RING * fr = NetRingCollectionGetFragmentRing(rx->Rings);
-    NET_RING_FRAGMENT_ITERATOR fi = NetRingGetPostFragments(rx->Rings);
+    NET_RING * br = NetRingCollectionGetDataBufferRing(rx->Rings);
 
-    while (NetFragmentIteratorHasAny(&fi))
+    NET_RING_FRAGMENT_ITERATOR fi = NetRingGetPostFragments(rx->Rings);
+    NET_DATA_BUFFER_HANDLE dataBufferHandle;
+
+    while (NetFragmentIteratorHasAny(&fi) && 
+           NetDataBufferFetch(br, 1, &dataBufferHandle))
     {
         UINT32 const index = NetFragmentIteratorGetIndex(&fi);
-        NET_FRAGMENT_LOGICAL_ADDRESS const * logicalAddress = NetExtensionGetFragmentLogicalAddress(
-            &rx->LogicalAddressExtension, index);
+        NET_FRAGMENT_DATA_BUFFER* dataBuffer = NetExtensionGetFragmentDataBuffer(
+            &rx->DataBufferExtension, index);
+
+        dataBuffer->Handle = dataBufferHandle;
 
         RtPostRxDescriptor(&rx->RxdBase[index],
-            NetFragmentIteratorGetFragment(&fi),
-            logicalAddress,
-            RXS_OWN | (fr->ElementIndexMask == index ? RXS_EOR : 0));
+                           NetFragmentIteratorGetFragment(&fi),
+                           NetDataBufferGetLogicalAddress(br, dataBuffer->Handle),
+                           RXS_OWN | (fr->ElementIndexMask == index ? RXS_EOR : 0));
         NetFragmentIteratorAdvance(&fi);
     }
     NetFragmentIteratorSet(&fi);
@@ -425,7 +433,7 @@ EvtRxQueueStop(
 
     WdfSpinLockAcquire(rx->Adapter->Lock);
 
-    bool count = 0;
+    size_t count = 0;
     for (size_t i = 0; i < ARRAYSIZE(rx->Adapter->RxQueues); i++)
     {
         if (rx->Adapter->RxQueues[i])
