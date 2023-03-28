@@ -368,7 +368,7 @@ EvtInterruptDpc(
     {
         if (InterlockedExchange(&interrupt->TxNotifyArmed, false))
         {
-            NetTxQueueNotifyMoreCompletedPacketsAvailable(adapter->TxQueue);
+            NetTxQueueNotifyMoreCompletedPacketsAvailable(adapter->TxQueues[0]);
         }
     }
 

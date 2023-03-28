@@ -27,10 +27,10 @@ Internal resource file for filter.
 #define VER_FILETYPE                VFT_DRV
 #define VER_FILESUBTYPE             VFT2_DRV_NETWORK
 
-#define VER_FILEDESCRIPTION_STR     "Realtek PCIe GBE Family Controller NetAdapter Sample Driver"
+#define VER_FILEDESCRIPTION_STR     "Realtek PCIe GBE Family Controller Flight"
 
-#define VER_INTERNALNAME_STR        "RtEthSample.sys"
-#define VER_ORIGINALFILENAME_STR    "RtEthSample.sys"
+#define VER_INTERNALNAME_STR        "RtEth.sys"
+#define VER_ORIGINALFILENAME_STR    "RtEth.sys"
 
 #define VER_FILEVERSION             1,0
 #define VER_FILEVERSION_STR         "1.0"

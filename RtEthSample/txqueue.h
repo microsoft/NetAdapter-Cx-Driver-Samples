@@ -40,9 +40,13 @@ typedef struct _RT_TXQUEUE
     UCHAR volatile *TPPoll;
 
     NET_EXTENSION ChecksumExtension;
-    NET_EXTENSION LsoExtension;
+    NET_EXTENSION GsoExtension;
     NET_EXTENSION VirtualAddressExtension;
     NET_EXTENSION LogicalAddressExtension;
+    NET_EXTENSION Ieee8021qExtension;
+
+    ULONG QueueId;
+    UINT8 Priority;
 } RT_TXQUEUE;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(RT_TXQUEUE, RtGetTxQueueContext);
