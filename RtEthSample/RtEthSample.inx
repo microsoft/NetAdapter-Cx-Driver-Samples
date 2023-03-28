@@ -290,8 +290,8 @@ TransmitBuffers          = "Transmit Buffers"
 LSOv2Ipv4                = "Large Send Offload v2 (IPv4)"
 LSOv2Ipv6                = "Large Send Offload v2 (IPv6)"
 
-RTL8168.DeviceDesc       = "Realtek PCIe GBE Family Controller Flight"
-Service.DisplayName      = "Realtek PCIe GBE Family Controller Flight"
+RTL8168.DeviceDesc       = "Realtek PCIe GBE Family Controller NetAdapter Sample Driver"
+Service.DisplayName      = "Realtek PCIe GBE Family Controller NetAdapter Sample Driver"
 
 DiskDescription          = "Realtek Driver Disk 1"
 
