@@ -69,6 +69,9 @@
     <DriverSign>
       <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Release|x64'">/fd SHA256 %(AdditionalOptions)</AdditionalOptions>
     </DriverSign>
+    <DriverSign>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">/fd SHA256 %(AdditionalOptions)</AdditionalOptions>
+    </DriverSign>
   </ItemDefinitionGroup>
   <!-- The WrappedTaskItems label is used by the conversion tool to identify the location where items 
         associated with wrapped tasks will reside.-->
