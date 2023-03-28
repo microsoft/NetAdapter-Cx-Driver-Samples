@@ -34,7 +34,7 @@
     <DriverTargetPlatform>Universal</DriverTargetPlatform>
   </PropertyGroup>
   <PropertyGroup Label="Configuration" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <NetAdapterDriverPreview>true</NetAdapterDriverPreview>
+    <NetAdapterDriverPreview>false</NetAdapterDriverPreview>
   </PropertyGroup>
   <!-- Needed by any VcxProj -->
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
