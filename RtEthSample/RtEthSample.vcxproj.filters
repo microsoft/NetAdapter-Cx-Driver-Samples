@@ -24,6 +24,9 @@
     <ClInclude Include="adapter.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="common.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="device.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -117,11 +120,5 @@
     <Inf Include="RtEthSample.inx">
       <Filter>Setup Files</Filter>
     </Inf>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="packages.config" />
-  </ItemGroup>
-  <ItemGroup>
-    <Natvis Include="$(MSBuildThisFileDirectory)..\..\natvis\wil.natvis" />
   </ItemGroup>
 </Project>
