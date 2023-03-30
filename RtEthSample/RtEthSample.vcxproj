@@ -26,7 +26,7 @@
     <TargetVersion>Windows10</TargetVersion>
     <NetAdapterDriver>true</NetAdapterDriver>
     <NETADAPTER_VERSION_MAJOR>2</NETADAPTER_VERSION_MAJOR>
-    <NETADAPTER_VERSION_MINOR>0</NETADAPTER_VERSION_MINOR>
+    <NETADAPTER_VERSION_MINOR>3</NETADAPTER_VERSION_MINOR>
     <KMDF_VERSION_MAJOR>1</KMDF_VERSION_MAJOR>
     <KMDF_VERSION_MINOR>23</KMDF_VERSION_MINOR>
     <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">True</UseDebugLibraries>
@@ -42,7 +42,6 @@
   </ImportGroup>
   <ImportGroup Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" />
-    <Import Project="packages\Microsoft.Windows.ImplementationLibrary.1.0.230202.1\build\native\Microsoft.Windows.ImplementationLibrary.targets" Condition="Exists('packages\Microsoft.Windows.ImplementationLibrary.1.0.230202.1\build\native\Microsoft.Windows.ImplementationLibrary.targets')" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
@@ -77,6 +76,7 @@
         associated with wrapped tasks will reside.-->
   <ItemGroup Label="WrappedTaskItems">
     <ClInclude Include="adapter.h" />
+    <ClInclude Include="common.h" />
     <ClInclude Include="configuration.h" />
     <ClInclude Include="device.h" />
     <ClInclude Include="eeprom.h" />
@@ -92,6 +92,8 @@
     <ClInclude Include="statistics.h" />
     <ClInclude Include="trace.h" />
     <ClInclude Include="txqueue.h" />
+    <ClInclude Include="wistd_config.h" />
+    <ClInclude Include="wistd_type_traits.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="adapter.cpp" />
@@ -118,15 +120,6 @@
       <EnvironmentVariable>true</EnvironmentVariable>
     </BuildMacro>
   </ItemGroup>
-  <ItemGroup>
-    <None Include="packages.config" />
-  </ItemGroup>
   <!-- /Necessary to pick up proper files from local directory when in the IDE-->
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-  <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
-    <PropertyGroup>
-      <ErrorText>This project references NuGet package(s) that are missing on this computer. Use NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
-    </PropertyGroup>
-    <Error Condition="!Exists('packages\Microsoft.Windows.ImplementationLibrary.1.0.230202.1\build\native\Microsoft.Windows.ImplementationLibrary.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\Microsoft.Windows.ImplementationLibrary.1.0.230202.1\build\native\Microsoft.Windows.ImplementationLibrary.targets'))" />
-  </Target>
 </Project>
