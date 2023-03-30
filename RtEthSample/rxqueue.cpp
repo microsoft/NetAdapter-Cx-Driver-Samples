@@ -11,7 +11,7 @@
 
 #include "precomp.h"
 
-#include <wil/common.h>
+#include "common.h"
 
 #include "device.h"
 #include "rxqueue.h"
