@@ -16,59 +16,7 @@
 #include "trace.h"
 #include "adapter.h"
 #include "interrupt.h"
-
 #include "netringiterator.h"
-
-void
-RtUpdateSendStats(
-    _In_ RT_TXQUEUE * tx,
-    _In_ NET_RING_PACKET_ITERATOR const * pi
-    )
-{
-    NET_PACKET const * packet = NetPacketIteratorGetPacket(pi);
-    if (packet->Layout.Layer2Type != NetPacketLayer2TypeEthernet)
-    {
-        return;
-    }
-
-    NET_RING_FRAGMENT_ITERATOR fi = NetPacketIteratorGetFragments(pi);
-    NET_FRAGMENT const * fragment = NetFragmentIteratorGetFragment(&fi);
-    NET_FRAGMENT_VIRTUAL_ADDRESS const * virtualAddress = NetExtensionGetFragmentVirtualAddress(
-        &tx->VirtualAddressExtension, packet->FragmentIndex);
-    // Ethernet header should be in first fragment
-    if (fragment->ValidLength < sizeof(ETHERNET_HEADER))
-    {
-        return;
-    }
-
-    PUCHAR ethHeader = (PUCHAR)virtualAddress->VirtualAddress + fragment->Offset;
-
-    ULONG length = 0;
-    while (NetFragmentIteratorHasAny(&fi))
-    {
-        fragment = NetFragmentIteratorGetFragment(&fi);
-        length += (ULONG)fragment->ValidLength;
-        NetFragmentIteratorAdvance(&fi);
-    }
-
-    RT_ADAPTER *adapter = tx->Adapter;
-
-    if (ETH_IS_BROADCAST(ethHeader))
-    {
-        adapter->OutBroadcastPkts++;
-        adapter->OutBroadcastOctets += length;
-    }
-    else if (ETH_IS_MULTICAST(ethHeader))
-    {
-        adapter->OutMulticastPkts++;
-        adapter->OutMulticastOctets += length;
-    }
-    else
-    {
-        adapter->OutUCastPkts++;
-        adapter->OutUCastOctets += length;
-    }
-}
 
 static
 USHORT
@@ -79,6 +27,10 @@ RtGetPacketLsoStatusSetting(
     const USHORT layer4HeaderOffset =
         packet->Layout.Layer2HeaderLength +
         packet->Layout.Layer3HeaderLength;
+
+    NT_ASSERT(packet->Layout.Layer2HeaderLength != 0U);
+    NT_ASSERT(packet->Layout.Layer3HeaderLength != 0U);
+    NT_ASSERT(layer4HeaderOffset < 0xff);
 
     if (NetPacketIsIpv4(packet))
     {
@@ -99,7 +51,7 @@ RtGetPacketLsoMss(
     _In_ UINT32 packetIndex
 )
 {
-    return NetExtensionGetPacketLso(extension, packetIndex)->TCP.Mss;
+    return NetExtensionGetPacketGso(extension, packetIndex)->TCP.Mss;
 }
 
 static
@@ -118,6 +70,17 @@ RtGetPacketChecksumSetting(
         // Prioritize layer4 checksum first
         if (checksumInfo->Layer4 == NetPacketTxChecksumActionRequired)
         {
+
+            const USHORT layer4HeaderOffset =
+                packet->Layout.Layer2HeaderLength +
+                packet->Layout.Layer3HeaderLength;
+
+            UNREFERENCED_PARAMETER(layer4HeaderOffset);
+
+            NT_ASSERT(packet->Layout.Layer2HeaderLength != 0U);
+            NT_ASSERT(packet->Layout.Layer3HeaderLength != 0U);
+            NT_ASSERT(layer4HeaderOffset < 0xff);
+
             if (packet->Layout.Layer4Type == NetPacketLayer4TypeTcp)
             {
                 return TXS_IPV6RSS_TCPCS | TXS_IPV6RSS_IPV4CS;
@@ -145,6 +108,10 @@ RtGetPacketChecksumSetting(
             const USHORT layer4HeaderOffset =
                 packet->Layout.Layer2HeaderLength +
                 packet->Layout.Layer3HeaderLength;
+
+            NT_ASSERT(packet->Layout.Layer2HeaderLength != 0U);
+            NT_ASSERT(packet->Layout.Layer3HeaderLength != 0U);
+            NT_ASSERT(layer4HeaderOffset < 0xff);
 
             if (packet->Layout.Layer4Type == NetPacketLayer4TypeTcp)
             {
@@ -180,15 +147,37 @@ RtProgramOffloadDescriptor(
     txd->TxDescDataIpv6Rss_All.OffloadGsoMssTagc = 0;
     RT_ADAPTER const * adapter = tx->Adapter;
 
-    auto const lsoEnabled = tx->LsoExtension.Enabled &&
-        (adapter->LSOv4 == RtLsoOffloadEnabled || adapter->LSOv6 == RtLsoOffloadEnabled);
+    auto const lsoEnabled = tx->GsoExtension.Enabled &&
+        (adapter->LSOv4 == RtGsoOffloadEnabled || adapter->LSOv6 == RtGsoOffloadEnabled);
 
     auto const checksumEnabled = tx->ChecksumExtension.Enabled &&
-        (adapter->TcpHwChkSum || adapter->IpHwChkSum || adapter->UdpHwChkSum);
+        (adapter->TxTcpHwChkSum || adapter->TxIpHwChkSum || adapter->TxUdpHwChkSum);
+
+    auto const ieee8021qEnabled = tx->Ieee8021qExtension.Enabled;
+
+    if (ieee8021qEnabled)
+    {
+        txd->TxDescDataIpv6Rss_All.OffloadGsoMssTagc |= TXS_IPV6RSS_TAGC;
+
+        auto const ieee8021q = NetExtensionGetPacketIeee8021Q(&tx->Ieee8021qExtension, packetIndex);
+
+        if (ieee8021q->TxTagging & NetPacketTxIeee8021qActionFlagPriorityRequired)
+        {
+             txd->TxDescDataIpv6Rss_All.VLAN_TAG.TagHeader.Priority = ieee8021q->PriorityCodePoint;
+        }
+
+        if (ieee8021q->TxTagging & NetPacketTxIeee8021qActionFlagVlanRequired)
+        {
+            auto const vlan = ieee8021q->VlanIdentifier;
+
+            txd->TxDescDataIpv6Rss_All.VLAN_TAG.TagHeader.VLanID2 = vlan & 0xFF;
+            txd->TxDescDataIpv6Rss_All.VLAN_TAG.TagHeader.VLanID1 = (vlan >> 8) & 0xF;
+        }
+    }
 
     if (packet->Layout.Layer4Type == NetPacketLayer4TypeTcp && lsoEnabled)
     {
-        auto const mss = RtGetPacketLsoMss(&tx->LsoExtension, packetIndex);
+        auto const mss = RtGetPacketLsoMss(&tx->GsoExtension, packetIndex);
         if (mss > 0)
         {
             status |= RtGetPacketLsoStatusSetting(packet);
@@ -263,7 +252,8 @@ RtFlushTransation(
     )
 {
     MemoryBarrier();
-    *tx->TPPoll = TPPoll_NPQ;
+
+    *tx->TPPoll = tx->Priority;
 }
 
 static
@@ -304,7 +294,6 @@ RtIsPacketTransferComplete(
             txd->TxDescDataIpv6Rss_All.status = 0;
             NetFragmentIteratorAdvance(&fi);
         }
-        RtUpdateSendStats(tx, pi);
         fi.Iterator.Rings->Rings[NetRingTypeFragment]->BeginIndex
             = NetFragmentIteratorGetIndex(&fi);
     }
@@ -478,15 +467,25 @@ EvtTxQueueStart(
 
     PHYSICAL_ADDRESS pa = WdfCommonBufferGetAlignedLogicalAddress(tx->TxdArray);
 
-    // let hardware know where transmit descriptors are at
-    adapter->CSRAddress->TNPDSLow = pa.LowPart;
-    adapter->CSRAddress->TNPDSHigh = pa.HighPart;
+    switch (tx->Priority)
+    {
+    case TPPoll_NPQ:
+        adapter->CSRAddress->TNPDSLow = pa.LowPart;
+        adapter->CSRAddress->TNPDSHigh = pa.HighPart;
+        break;
 
+    case TPPoll_HPQ:
+        adapter->CSRAddress->THPDSLow = pa.LowPart;
+        adapter->CSRAddress->THPDSHigh = pa.HighPart;
+        break;
+    }
+
+    // XXX we need to only enable TE on "last" queue
     adapter->CSRAddress->CmdReg |= CR_TE;
 
     // data sheet says TCR should only be modified after the transceiver is enabled
     adapter->CSRAddress->TCR = (TCR_RCR_MXDMA_UNLIMITED << TCR_MXDMA_OFFSET) | (TCR_IFG0 | TCR_IFG1 | TCR_BIT0);
-    adapter->TxQueue = txQueue;
+    adapter->TxQueues[tx->QueueId] = txQueue;
 
     WdfSpinLockRelease(adapter->Lock);
 }
@@ -501,10 +500,22 @@ EvtTxQueueStop(
 
     WdfSpinLockAcquire(tx->Adapter->Lock);
 
-    tx->Adapter->CSRAddress->CmdReg &= ~CR_TE;
+    size_t count = 0;
+    for (size_t i = 0; i < ARRAYSIZE(tx->Adapter->TxQueues); i++)
+    {
+        if (tx->Adapter->TxQueues[i] != WDF_NO_HANDLE)
+        {
+            count++;
+        }
+    }
 
-    RtTxQueueSetInterrupt(tx, false);
-    tx->Adapter->TxQueue = WDF_NO_HANDLE;
+    if (1 == count)
+    {
+        tx->Adapter->CSRAddress->CmdReg &= ~CR_TE;
+        RtTxQueueSetInterrupt(tx, false);
+    }
+
+    tx->Adapter->TxQueues[tx->QueueId] = WDF_NO_HANDLE;
 
     WdfSpinLockRelease(tx->Adapter->Lock);
 }

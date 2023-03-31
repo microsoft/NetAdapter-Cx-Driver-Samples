@@ -11,8 +11,7 @@
 
 #include "precomp.h"
 
-#include <preview/netadapteroffload.h>
-#include <preview/netadaptercx.h>
+#include <netadaptercx.h>
 
 #include "trace.h"
 #include "device.h"
@@ -22,6 +21,9 @@
 #include "eeprom.h"
 #include "gigamac.h"
 
+// Uncomment the line below to use Checksum APIs from Netcx 2.0
+// #define USE_NETCX20_CHECKSUM
+
 #define ETH_IS_ZERO(Address) ( \
     (((PUCHAR)(Address))[0] == ((UCHAR)0x00)) && \
     (((PUCHAR)(Address))[1] == ((UCHAR)0x00)) && \
@@ -30,7 +32,7 @@
     (((PUCHAR)(Address))[4] == ((UCHAR)0x00)) && \
     (((PUCHAR)(Address))[5] == ((UCHAR)0x00)))
 
-NTSTATUS 
+NTSTATUS
 RtInitializeAdapterContext(
     _In_ RT_ADAPTER *adapter,
     _In_ WDFDEVICE device,
@@ -52,7 +54,7 @@ Return Value:
 --*/
 {
     TraceEntry();
-        
+
     NTSTATUS status = STATUS_SUCCESS;
 
     adapter->NetAdapter = netAdapter;
@@ -82,22 +84,24 @@ Exit:
 
 }
 
-
 void
 RtAdapterUpdateHardwareChecksum(
     _In_ RT_ADAPTER *adapter
     )
 {
     USHORT cpcr = adapter->CSRAddress->CPCR;
-    
+
     // if one of the checksum offloads is needed
     // or one of the LSO offloads is enabled,
     // enable HW checksum
-    if (adapter->IpHwChkSum ||
-        adapter->TcpHwChkSum ||
-        adapter->UdpHwChkSum ||
-        adapter->LSOv4 == RtLsoOffloadEnabled ||
-        adapter->LSOv6 == RtLsoOffloadEnabled)
+    if (adapter->TxIpHwChkSum ||
+        adapter->TxTcpHwChkSum ||
+        adapter->TxUdpHwChkSum ||
+        adapter->RxIpHwChkSum ||
+        adapter->RxTcpHwChkSum ||
+        adapter->RxUdpHwChkSum ||
+        adapter->LSOv4 == RtGsoOffloadEnabled ||
+        adapter->LSOv6 == RtGsoOffloadEnabled)
     {
         cpcr |= CPCR_RX_CHECKSUM;
     }
@@ -107,68 +111,6 @@ RtAdapterUpdateHardwareChecksum(
     }
 
     adapter->CSRAddress->CPCR = cpcr;
-}
-
-void
-RtAdapterQueryHardwareCapabilities(
-    _Out_ NDIS_OFFLOAD *hardwareCaps
-    )
-{
-    // TODO: when vlan is implemented, each of TCP_OFFLOAD's encapsulation
-    // type has to be updated to include NDIS_ENCAPSULATION_IEEE_802_3_P_AND_Q_IN_OOB
-
-    RtlZeroMemory(hardwareCaps, sizeof(*hardwareCaps));
-
-    hardwareCaps->Header.Type = NDIS_OBJECT_TYPE_OFFLOAD;
-    hardwareCaps->Header.Size = NDIS_SIZEOF_NDIS_OFFLOAD_REVISION_5;
-    hardwareCaps->Header.Revision = NDIS_OFFLOAD_REVISION_5;
-
-    // IPv4 checksum offloads supported
-    hardwareCaps->Checksum.IPv4Transmit.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
-    hardwareCaps->Checksum.IPv4Transmit.IpChecksum = NDIS_OFFLOAD_SUPPORTED;
-    hardwareCaps->Checksum.IPv4Transmit.IpOptionsSupported = NDIS_OFFLOAD_SUPPORTED;
-    hardwareCaps->Checksum.IPv4Transmit.TcpChecksum = NDIS_OFFLOAD_SUPPORTED;
-    hardwareCaps->Checksum.IPv4Transmit.TcpOptionsSupported = NDIS_OFFLOAD_SUPPORTED;
-    hardwareCaps->Checksum.IPv4Transmit.UdpChecksum = NDIS_OFFLOAD_SUPPORTED;
-
-    hardwareCaps->Checksum.IPv4Receive.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
-    hardwareCaps->Checksum.IPv4Receive.IpChecksum = NDIS_OFFLOAD_SUPPORTED;
-    hardwareCaps->Checksum.IPv4Receive.IpOptionsSupported = NDIS_OFFLOAD_SUPPORTED;
-    hardwareCaps->Checksum.IPv4Receive.TcpChecksum = NDIS_OFFLOAD_SUPPORTED;
-    hardwareCaps->Checksum.IPv4Receive.TcpOptionsSupported = NDIS_OFFLOAD_SUPPORTED;
-    hardwareCaps->Checksum.IPv4Receive.UdpChecksum = NDIS_OFFLOAD_SUPPORTED;
-
-    // IPv6 checksum offloads supported
-    hardwareCaps->Checksum.IPv6Transmit.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
-    hardwareCaps->Checksum.IPv6Transmit.IpExtensionHeadersSupported = NDIS_OFFLOAD_SUPPORTED;
-    hardwareCaps->Checksum.IPv6Transmit.TcpChecksum = NDIS_OFFLOAD_SUPPORTED;
-    hardwareCaps->Checksum.IPv6Transmit.TcpOptionsSupported = NDIS_OFFLOAD_SUPPORTED;
-    hardwareCaps->Checksum.IPv6Transmit.UdpChecksum = NDIS_OFFLOAD_SUPPORTED;
-
-    hardwareCaps->Checksum.IPv6Receive.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
-    hardwareCaps->Checksum.IPv6Receive.IpExtensionHeadersSupported = NDIS_OFFLOAD_SUPPORTED;
-    hardwareCaps->Checksum.IPv6Receive.TcpChecksum = NDIS_OFFLOAD_SUPPORTED;
-    hardwareCaps->Checksum.IPv6Receive.TcpOptionsSupported = NDIS_OFFLOAD_SUPPORTED;
-    hardwareCaps->Checksum.IPv6Receive.UdpChecksum = NDIS_OFFLOAD_SUPPORTED;
-
-    // LSOv1 IPv4 offload NOT supported
-    hardwareCaps->LsoV1.IPv4.Encapsulation = NDIS_ENCAPSULATION_NOT_SUPPORTED;
-    hardwareCaps->LsoV1.IPv4.MaxOffLoadSize = 0;
-    hardwareCaps->LsoV1.IPv4.MinSegmentCount = 0;
-    hardwareCaps->LsoV1.IPv4.TcpOptions = NDIS_OFFLOAD_NOT_SUPPORTED;
-    hardwareCaps->LsoV1.IPv4.IpOptions = NDIS_OFFLOAD_NOT_SUPPORTED;
-
-    // LSOv2 IPv4 offload supported
-    hardwareCaps->LsoV2.IPv4.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
-    hardwareCaps->LsoV2.IPv4.MaxOffLoadSize = RT_LSO_OFFLOAD_MAX_SIZE;
-    hardwareCaps->LsoV2.IPv4.MinSegmentCount = RT_LSO_OFFLOAD_MIN_SEGMENT_COUNT;
-
-    // LSOv2 IPv6 offload supported
-    hardwareCaps->LsoV2.IPv6.Encapsulation = NDIS_ENCAPSULATION_IEEE_802_3;
-    hardwareCaps->LsoV2.IPv6.MaxOffLoadSize = RT_LSO_OFFLOAD_MAX_SIZE;
-    hardwareCaps->LsoV2.IPv6.MinSegmentCount = RT_LSO_OFFLOAD_MIN_SEGMENT_COUNT;
-    hardwareCaps->LsoV2.IPv6.IpExtensionHeadersSupported = NDIS_OFFLOAD_SUPPORTED;
-    hardwareCaps->LsoV2.IPv6.TcpOptionsSupported = NDIS_OFFLOAD_SUPPORTED;
 }
 
 _Use_decl_annotations_
@@ -184,8 +126,6 @@ EvtAdapterCreateTxQueue(
 
     RT_ADAPTER *adapter = RtGetAdapterContext(netAdapter);
 
-#pragma region Create NETTXQUEUE
-
     WDF_OBJECT_ATTRIBUTES txAttributes;
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&txAttributes, RT_TXQUEUE);
 
@@ -200,6 +140,8 @@ EvtAdapterCreateTxQueue(
     txConfig.EvtStart = EvtTxQueueStart;
     txConfig.EvtStop = EvtTxQueueStop;
 
+    const ULONG queueId = NetTxQueueInitGetQueueId(txQueueInit);
+
     NETPACKETQUEUE txQueue;
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
         NetTxQueueCreate(
@@ -208,26 +150,34 @@ EvtAdapterCreateTxQueue(
             &txConfig,
             &txQueue));
 
-#pragma endregion
-
-#pragma region Get packet extension offsets
     RT_TXQUEUE *tx = RtGetTxQueueContext(txQueue);
+    tx->QueueId = queueId;
+    tx->Priority = TPPoll_NPQ;
+
     NET_EXTENSION_QUERY extension;
     NET_EXTENSION_QUERY_INIT(
         &extension,
         NET_PACKET_EXTENSION_CHECKSUM_NAME,
         NET_PACKET_EXTENSION_CHECKSUM_VERSION_1,
         NetExtensionTypePacket);
-    
+
     NetTxQueueGetExtension(txQueue, &extension, &tx->ChecksumExtension);
 
     NET_EXTENSION_QUERY_INIT(
         &extension,
-        NET_PACKET_EXTENSION_LSO_NAME,
-        NET_PACKET_EXTENSION_LSO_VERSION_1,
+        NET_PACKET_EXTENSION_GSO_NAME,
+        NET_PACKET_EXTENSION_GSO_VERSION_1,
         NetExtensionTypePacket);
 
-    NetTxQueueGetExtension(txQueue, &extension, &tx->LsoExtension);
+    NetTxQueueGetExtension(txQueue, &extension, &tx->GsoExtension);
+
+    NET_EXTENSION_QUERY_INIT(
+        &extension,
+        NET_PACKET_EXTENSION_IEEE8021Q_NAME,
+        NET_PACKET_EXTENSION_IEEE8021Q_VERSION_1,
+        NetExtensionTypePacket);
+
+    NetTxQueueGetExtension(txQueue, &extension, &tx->Ieee8021qExtension);
 
     NET_EXTENSION_QUERY_INIT(
         &extension,
@@ -245,14 +195,8 @@ EvtAdapterCreateTxQueue(
 
     NetTxQueueGetExtension(txQueue, &extension, &tx->LogicalAddressExtension);
 
-#pragma endregion
-
-#pragma region Initialize RTL8168D Transmit Queue
-
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
         RtTxQueueInitialize(txQueue, adapter));
-
-#pragma endregion
 
 Exit:
     TraceExitResult(status);
@@ -273,8 +217,6 @@ EvtAdapterCreateRxQueue(
 
     RT_ADAPTER *adapter = RtGetAdapterContext(netAdapter);
 
-#pragma region Create NETRXQUEUE
-
     WDF_OBJECT_ATTRIBUTES rxAttributes;
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&rxAttributes, RT_RXQUEUE);
 
@@ -294,8 +236,6 @@ EvtAdapterCreateRxQueue(
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
         NetRxQueueCreate(rxQueueInit, &rxAttributes, &rxConfig, &rxQueue));
 
-#pragma endregion
-
     RT_RXQUEUE *rx = RtGetRxQueueContext(rxQueue);
     NET_EXTENSION_QUERY extension;
     NET_EXTENSION_QUERY_INIT(
@@ -310,18 +250,30 @@ EvtAdapterCreateRxQueue(
 
     NET_EXTENSION_QUERY_INIT(
         &extension,
+        NET_FRAGMENT_EXTENSION_VIRTUAL_ADDRESS_NAME,
+        NET_FRAGMENT_EXTENSION_VIRTUAL_ADDRESS_VERSION_1,
+        NetExtensionTypeFragment);
+
+    NetRxQueueGetExtension(rxQueue, &extension, &rx->VirtualAddressExtension);
+
+    NET_EXTENSION_QUERY_INIT(
+        &extension,
         NET_FRAGMENT_EXTENSION_LOGICAL_ADDRESS_NAME,
         NET_FRAGMENT_EXTENSION_LOGICAL_ADDRESS_VERSION_1,
         NetExtensionTypeFragment);
 
     NetRxQueueGetExtension(rxQueue, &extension, &rx->LogicalAddressExtension);
 
-#pragma region Initialize RTL8168D Receive Queue
+    NET_EXTENSION_QUERY_INIT(
+        &extension,
+        NET_PACKET_EXTENSION_HASH_NAME,
+        NET_PACKET_EXTENSION_HASH_VERSION_1,
+        NetExtensionTypePacket);
+
+    NetRxQueueGetExtension(rxQueue, &extension, &rx->HashValueExtension);
 
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
         RtRxQueueInitialize(rxQueue, adapter));
-
-#pragma endregion
 
 Exit:
     TraceExitResult(status);
@@ -405,6 +357,8 @@ EvtAdapterReceiveScalingEnable(
     GOTO_IF_NOT_NT_SUCCESS(Exit, status,
         RtReceiveScalingEnable(adapter, protocolType));
 
+    adapter->RssEnabled = true;
+
 Exit:
     TraceExitResult(status);
 
@@ -423,6 +377,8 @@ EvtAdapterReceiveScalingDisable(
     {
         WdfDeviceSetFailed(adapter->WdfDevice, WdfDeviceFailedAttemptRestart);
     }
+
+    adapter->RssEnabled = false;
 }
 
 static
@@ -786,7 +742,7 @@ RtAdapterIssueFullReset(
     }
 }
 
-void 
+void
 RtAdapterUpdateInterruptModeration(
     _In_ RT_ADAPTER *adapter
     )
@@ -843,45 +799,31 @@ RtAdapterUpdateInterruptModeration(
 }
 
 void
-EvtSetPacketFilter(
-    _In_ NETADAPTER netAdapter,
-    _In_ NET_PACKET_FILTER_FLAGS PacketFilter
-    )
-{
-    RT_ADAPTER *adapter = RtGetAdapterContext(netAdapter);
-
-    WdfSpinLockAcquire(adapter->Lock); {
-
-        adapter->PacketFilter = PacketFilter;
-        RtAdapterUpdateRcr(adapter);
-
-        // Changing the packet filter might require clearing the active MCList
-        RtAdapterPushMulticastList(adapter);
-
-    } WdfSpinLockRelease(adapter->Lock);
-}
-
-void
-EvtSetMulticastList(
+EvtSetReceiveFilter(
     _In_ NETADAPTER NetAdapter,
-    _In_ ULONG MulticastAddressCount,
-    _In_ NET_ADAPTER_LINK_LAYER_ADDRESS * MulticastAddressList
+    _In_ NETRECEIVEFILTER Handle
     )
 {
     RT_ADAPTER *adapter = RtGetAdapterContext(NetAdapter);
 
     WdfSpinLockAcquire(adapter->Lock); {
 
-        adapter->MCAddressCount = MulticastAddressCount;
+        adapter->PacketFilter = NetReceiveFilterGetPacketFilter(Handle);
+        RtAdapterUpdateRcr(adapter);
 
-        RtlZeroMemory(adapter->MCList,
-        sizeof(NET_ADAPTER_LINK_LAYER_ADDRESS) * RT_MAX_MCAST_LIST);
+        adapter->MCAddressCount = (UINT)NetReceiveFilterGetMulticastAddressCount(Handle);;
 
-        if (MulticastAddressCount != 0)
+        RtlZeroMemory(
+            adapter->MCList,
+            sizeof(NET_ADAPTER_LINK_LAYER_ADDRESS) * RT_MAX_MCAST_LIST);
+
+        if (adapter->MCAddressCount != 0U)
         {
-            RtlCopyMemory(adapter->MCList,
+            NET_ADAPTER_LINK_LAYER_ADDRESS const * MulticastAddressList = NetReceiveFilterGetMulticastAddressList(Handle);
+            RtlCopyMemory(
+                adapter->MCList,
                 MulticastAddressList,
-                sizeof(NET_ADAPTER_LINK_LAYER_ADDRESS) * MulticastAddressCount);
+                sizeof(NET_ADAPTER_LINK_LAYER_ADDRESS) * adapter->MCAddressCount);
         }
 
         RtAdapterPushMulticastList(adapter);
@@ -891,17 +833,18 @@ EvtSetMulticastList(
 
 static
 void
-RtAdapterSetMulticastCapabilities(
+RtAdapterSetReceiveFilterCapabilities(
     _In_ RT_ADAPTER *adapter
     )
 {
-    NET_ADAPTER_MULTICAST_CAPABILITIES multicastCapabilities;
-    NET_ADAPTER_MULTICAST_CAPABILITIES_INIT(
-        &multicastCapabilities,
-        RT_MAX_MCAST_LIST,
-        EvtSetMulticastList);
+    NET_ADAPTER_RECEIVE_FILTER_CAPABILITIES receiveFilterCapabilities;
+    NET_ADAPTER_RECEIVE_FILTER_CAPABILITIES_INIT(
+        &receiveFilterCapabilities,
+        EvtSetReceiveFilter);
+    receiveFilterCapabilities.SupportedPacketFilters = RT_SUPPORTED_FILTERS;
+    receiveFilterCapabilities.MaximumMulticastAddresses = RT_MAX_MCAST_LIST;
 
-    NetAdapterSetMulticastCapabilities(adapter->NetAdapter, &multicastCapabilities);
+    NetAdapterSetReceiveFilterCapabilities(adapter->NetAdapter, &receiveFilterCapabilities);
 }
 
 static
@@ -919,17 +862,10 @@ RtAdapterSetLinkLayerCapabilities(
         maxXmitLinkSpeed,
         maxRcvLinkSpeed);
 
-    NET_ADAPTER_PACKET_FILTER_CAPABILITIES packetFilterCapabilities;
-    NET_ADAPTER_PACKET_FILTER_CAPABILITIES_INIT(
-        &packetFilterCapabilities,
-        RT_SUPPORTED_FILTERS,
-        EvtSetPacketFilter);
-
     NetAdapterSetLinkLayerCapabilities(adapter->NetAdapter, &linkLayerCapabilities);
     NetAdapterSetLinkLayerMtuSize(adapter->NetAdapter, RT_MAX_PACKET_SIZE - ETH_LENGTH_OF_HEADER);
     NetAdapterSetPermanentLinkLayerAddress(adapter->NetAdapter, &adapter->PermanentAddress);
     NetAdapterSetCurrentLinkLayerAddress(adapter->NetAdapter, &adapter->CurrentAddress);
-    NetAdapterSetPacketFilterCapabilities(adapter->NetAdapter, &packetFilterCapabilities);
 }
 
 static
@@ -938,24 +874,21 @@ RtAdapterSetReceiveScalingCapabilities(
     _In_ RT_ADAPTER const *adapter
     )
 {
-    if (adapter->RssEnabled)
-    {
-        NET_ADAPTER_RECEIVE_SCALING_CAPABILITIES receiveScalingCapabilities;
-        NET_ADAPTER_RECEIVE_SCALING_CAPABILITIES_INIT(
-            &receiveScalingCapabilities,
-            4, // NumberOfQueues
-            NetAdapterReceiveScalingUnhashedTargetTypeHashIndex,
-            NetAdapterReceiveScalingHashTypeToeplitz,
-            NetAdapterReceiveScalingProtocolTypeIPv4 |
-            NetAdapterReceiveScalingProtocolTypeIPv6 |
-            NetAdapterReceiveScalingProtocolTypeTcp,
-            EvtAdapterReceiveScalingEnable,
-            EvtAdapterReceiveScalingDisable,
-            EvtAdapterReceiveScalingSetHashSecretKey,
-            EvtAdapterReceiveScalingSetIndirectionEntries);
-        receiveScalingCapabilities.SynchronizeSetIndirectionEntries = true;
-        NetAdapterSetReceiveScalingCapabilities(adapter->NetAdapter, &receiveScalingCapabilities);
-    }
+    NET_ADAPTER_RECEIVE_SCALING_CAPABILITIES receiveScalingCapabilities;
+    NET_ADAPTER_RECEIVE_SCALING_CAPABILITIES_INIT(
+        &receiveScalingCapabilities,
+        RT_NUMBER_OF_RX_QUEUES,
+        NetAdapterReceiveScalingUnhashedTargetTypeHashIndex,
+        NetAdapterReceiveScalingHashTypeToeplitz,
+        NetAdapterReceiveScalingProtocolTypeIPv4 |
+        NetAdapterReceiveScalingProtocolTypeIPv6 |
+        NetAdapterReceiveScalingProtocolTypeTcp,
+        EvtAdapterReceiveScalingEnable,
+        EvtAdapterReceiveScalingDisable,
+        EvtAdapterReceiveScalingSetHashSecretKey,
+        EvtAdapterReceiveScalingSetIndirectionEntries);
+    receiveScalingCapabilities.SynchronizeSetIndirectionEntries = true;
+    NetAdapterSetReceiveScalingCapabilities(adapter->NetAdapter, &receiveScalingCapabilities);
 }
 
 static
@@ -988,7 +921,7 @@ RtAdapterSetDatapathCapabilities(
 
     txCapabilities.FragmentRingNumberOfElementsHint = adapter->NumTcb * RT_MAX_PHYS_BUF_COUNT;
     txCapabilities.MaximumNumberOfFragments = RT_MAX_PHYS_BUF_COUNT;
-    
+
     NET_ADAPTER_DMA_CAPABILITIES rxDmaCapabilities;
     NET_ADAPTER_DMA_CAPABILITIES_INIT(&rxDmaCapabilities, adapter->DmaEnabler);
 
@@ -1006,6 +939,7 @@ RtAdapterSetDatapathCapabilities(
 
 }
 
+#ifdef USE_NETCX20_CHECKSUM
 static
 void
 EvtAdapterOffloadSetChecksum(
@@ -1015,16 +949,49 @@ EvtAdapterOffloadSetChecksum(
 {
     RT_ADAPTER *adapter = RtGetAdapterContext(netAdapter);
 
-    adapter->IpHwChkSum = NetOffloadIsChecksumIPv4Enabled(offload);
-    adapter->TcpHwChkSum = NetOffloadIsChecksumTcpEnabled(offload);
-    adapter->UdpHwChkSum = NetOffloadIsChecksumUdpEnabled(offload);
+    adapter->TxIpHwChkSum = adapter->RxIpHwChkSum = NetOffloadIsChecksumIPv4Enabled(offload);
+    adapter->TxTcpHwChkSum = adapter->RxTcpHwChkSum = NetOffloadIsChecksumTcpEnabled(offload);
+    adapter->TxUdpHwChkSum = adapter->RxUdpHwChkSum = NetOffloadIsChecksumUdpEnabled(offload);
+
+    RtAdapterUpdateHardwareChecksum(adapter);
+}
+#else
+static
+void
+EvtAdapterOffloadSetTxChecksum(
+    _In_ NETADAPTER netAdapter,
+    _In_ NETOFFLOAD offload
+    )
+{
+    RT_ADAPTER *adapter = RtGetAdapterContext(netAdapter);
+
+    adapter->TxIpHwChkSum = NetOffloadIsTxChecksumIPv4Enabled(offload);
+    adapter->TxTcpHwChkSum = NetOffloadIsTxChecksumTcpEnabled(offload);
+    adapter->TxUdpHwChkSum = NetOffloadIsTxChecksumUdpEnabled(offload);
 
     RtAdapterUpdateHardwareChecksum(adapter);
 }
 
 static
 void
-EvtAdapterOffloadSetLso(
+EvtAdapterOffloadSetRxChecksum(
+    _In_ NETADAPTER netAdapter,
+    _In_ NETOFFLOAD offload
+    )
+{
+    RT_ADAPTER *adapter = RtGetAdapterContext(netAdapter);
+
+    adapter->RxIpHwChkSum = NetOffloadIsRxChecksumIPv4Enabled(offload);
+    adapter->RxTcpHwChkSum = NetOffloadIsRxChecksumTcpEnabled(offload);
+    adapter->RxUdpHwChkSum = NetOffloadIsRxChecksumUdpEnabled(offload);
+
+    RtAdapterUpdateHardwareChecksum(adapter);
+}
+#endif
+
+static
+void
+EvtAdapterOffloadSetGso(
     _In_ NETADAPTER netAdapter,
     _In_ NETOFFLOAD offload
     )
@@ -1032,9 +999,9 @@ EvtAdapterOffloadSetLso(
     RT_ADAPTER *adapter = RtGetAdapterContext(netAdapter);
 
     adapter->LSOv4 = NetOffloadIsLsoIPv4Enabled(offload)
-        ? RtLsoOffloadEnabled : RtLsoOffloadDisabled;
+        ? RtGsoOffloadEnabled : RtGsoOffloadDisabled;
     adapter->LSOv6 = NetOffloadIsLsoIPv6Enabled(offload)
-        ? RtLsoOffloadEnabled : RtLsoOffloadDisabled;
+        ? RtGsoOffloadEnabled : RtGsoOffloadDisabled;
 
     RtAdapterUpdateHardwareChecksum(adapter);
 }
@@ -1045,6 +1012,7 @@ RtAdapterSetOffloadCapabilities(
     _In_ RT_ADAPTER const *adapter
     )
 {
+#ifdef USE_NETCX20_CHECKSUM
     NET_ADAPTER_OFFLOAD_CHECKSUM_CAPABILITIES checksumOffloadCapabilities;
 
     NET_ADAPTER_OFFLOAD_CHECKSUM_CAPABILITIES_INIT(
@@ -1055,18 +1023,69 @@ RtAdapterSetOffloadCapabilities(
         EvtAdapterOffloadSetChecksum);
 
     NetAdapterOffloadSetChecksumCapabilities(adapter->NetAdapter, &checksumOffloadCapabilities);
+#else
+    NET_ADAPTER_OFFLOAD_TX_CHECKSUM_CAPABILITIES txChecksumOffloadCapabilities;
 
-    NET_ADAPTER_OFFLOAD_LSO_CAPABILITIES lsoOffloadCapabilities;
+    auto const layer3Flags = NetAdapterOffloadLayer3FlagIPv4NoOptions |
+        NetAdapterOffloadLayer3FlagIPv4WithOptions |
+        NetAdapterOffloadLayer3FlagIPv6NoExtensions |
+        NetAdapterOffloadLayer3FlagIPv6WithExtensions;
 
-    NET_ADAPTER_OFFLOAD_LSO_CAPABILITIES_INIT(
-        &lsoOffloadCapabilities,
-        TRUE,
-        TRUE,
-        RT_LSO_OFFLOAD_MAX_SIZE,
-        RT_LSO_OFFLOAD_MIN_SEGMENT_COUNT,
-        EvtAdapterOffloadSetLso);
+    auto const layer4Flags = NetAdapterOffloadLayer4FlagTcpNoOptions |
+        NetAdapterOffloadLayer4FlagTcpWithOptions |
+        NetAdapterOffloadLayer4FlagUdp;
 
-    NetAdapterOffloadSetLsoCapabilities(adapter->NetAdapter, &lsoOffloadCapabilities);
+    NET_ADAPTER_OFFLOAD_TX_CHECKSUM_CAPABILITIES_INIT(
+        &txChecksumOffloadCapabilities,
+        layer3Flags,
+        EvtAdapterOffloadSetTxChecksum);
+
+    txChecksumOffloadCapabilities.Layer4Flags = layer4Flags;
+    txChecksumOffloadCapabilities.Layer4HeaderOffsetLimit = RT_CHECKSUM_OFFLOAD_LAYER_4_HEADER_OFFSET_LIMIT;
+
+    NetAdapterOffloadSetTxChecksumCapabilities(adapter->NetAdapter, &txChecksumOffloadCapabilities);
+
+    NET_ADAPTER_OFFLOAD_RX_CHECKSUM_CAPABILITIES rxChecksumOffloadCapabilities;
+
+    NET_ADAPTER_OFFLOAD_RX_CHECKSUM_CAPABILITIES_INIT(
+        &rxChecksumOffloadCapabilities,
+        EvtAdapterOffloadSetRxChecksum);
+
+    NetAdapterOffloadSetRxChecksumCapabilities(adapter->NetAdapter, &rxChecksumOffloadCapabilities);
+#endif
+
+    NET_ADAPTER_OFFLOAD_GSO_CAPABILITIES gsoOffloadCapabilities;
+
+    auto const layer3GsoFlags = NetAdapterOffloadLayer3FlagIPv4NoOptions |
+        NetAdapterOffloadLayer3FlagIPv4WithOptions |
+        NetAdapterOffloadLayer3FlagIPv6NoExtensions |
+        NetAdapterOffloadLayer3FlagIPv6WithExtensions;
+
+    auto const layer4GsoFlags = NetAdapterOffloadLayer4FlagTcpNoOptions |
+        NetAdapterOffloadLayer4FlagTcpWithOptions;
+
+    NET_ADAPTER_OFFLOAD_GSO_CAPABILITIES_INIT(
+        &gsoOffloadCapabilities,
+        layer3GsoFlags,
+        layer4GsoFlags,
+        RT_GSO_OFFLOAD_MAX_SIZE,
+        RT_GSO_OFFLOAD_MIN_SEGMENT_COUNT,
+        EvtAdapterOffloadSetGso);
+
+    gsoOffloadCapabilities.Layer4HeaderOffsetLimit = RT_GSO_OFFLOAD_LAYER_4_HEADER_OFFSET_LIMIT;
+
+    NetAdapterOffloadSetGsoCapabilities(adapter->NetAdapter, &gsoOffloadCapabilities);
+
+    auto const ieee8021qTaggingFlag = NetAdapterOffloadIeee8021PriorityTaggingFlag |
+        NetAdapterOffloadIeee8021VlanTaggingFlag;
+
+    NET_ADAPTER_OFFLOAD_IEEE8021Q_TAG_CAPABILITIES ieee8021qTagOffloadCapabilities;
+
+    NET_ADAPTER_OFFLOAD_IEEE8021Q_TAG_CAPABILITIES_INIT(
+        &ieee8021qTagOffloadCapabilities,
+        ieee8021qTaggingFlag);
+
+    NetAdapterOffloadSetIeee8021qTagCapabilities(adapter->NetAdapter, &ieee8021qTagOffloadCapabilities);
 }
 
 _Use_decl_annotations_
@@ -1081,7 +1100,7 @@ RtAdapterStart(
 
     RtAdapterSetLinkLayerCapabilities(adapter);
 
-    RtAdapterSetMulticastCapabilities(adapter);
+    RtAdapterSetReceiveFilterCapabilities(adapter);
 
     RtAdapterSetReceiveScalingCapabilities(adapter);
 

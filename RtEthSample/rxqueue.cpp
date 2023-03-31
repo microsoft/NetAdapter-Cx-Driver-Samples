@@ -11,39 +11,14 @@
 
 #include "precomp.h"
 
+#include "common.h"
+
 #include "device.h"
 #include "rxqueue.h"
 #include "trace.h"
 #include "adapter.h"
 #include "interrupt.h"
 #include "gigamac.h"
-
-#include "netringiterator.h"
-
-void
-RtUpdateRecvStats(
-    _In_ RT_RXQUEUE *rx,
-    _In_ RT_RX_DESC const *rxd,
-         ULONG length
-    )
-{
-    // Unlike for Tx, the hardware has counters for Broadcast, Multicast,
-    // and Unicast inbound packets. So, we defer to the hardware counter for
-    // # of Rx transmissions.
-
-    if (rxd->RxDescDataIpv6Rss.status & RXS_BAR)
-    {
-        rx->Adapter->InBroadcastOctets += length;
-    }
-    else if (rxd->RxDescDataIpv6Rss.status & RXS_MAR)
-    {
-        rx->Adapter->InMulticastOctets += length;
-    }
-    else
-    {
-        rx->Adapter->InUcastOctets += length;
-    }
-}
 
 static
 void
@@ -60,7 +35,6 @@ RxFillRtl8111DChecksumInfo(
             &rx->ChecksumExtension,
             packetIndex);
 
-    packet->Layout.Layer2Type = NetPacketLayer2TypeEthernet;
     checksumInfo->Layer2 =
         (rxd->RxDescDataIpv6Rss.status & RXS_CRC)
         ? NetPacketRxChecksumEvaluationInvalid
@@ -75,7 +49,7 @@ RxFillRtl8111DChecksumInfo(
     {
         packet->Layout.Layer3Type = NetPacketLayer3TypeIPv4UnspecifiedOptions;
 
-        if (adapter->IpHwChkSum)
+        if (adapter->RxIpHwChkSum)
         {
             checksumInfo->Layer3 =
                 (rxd->RxDescDataIpv6Rss.status & RXS_IPF)
@@ -101,7 +75,7 @@ RxFillRtl8111DChecksumInfo(
     {
         packet->Layout.Layer4Type = NetPacketLayer4TypeTcp;
 
-        if (adapter->TcpHwChkSum)
+        if (adapter->RxTcpHwChkSum)
         {
             checksumInfo->Layer4 =
                 (rxd->RxDescDataIpv6Rss.IpRssTava & RXS_IPV6RSS_TCPF)
@@ -113,7 +87,7 @@ RxFillRtl8111DChecksumInfo(
     {
         packet->Layout.Layer4Type = NetPacketLayer4TypeUdp;
 
-        if (adapter->UdpHwChkSum)
+        if (adapter->RxUdpHwChkSum)
         {
             checksumInfo->Layer4 =
                 (rxd->RxDescDataIpv6Rss.IpRssTava & RXS_IPV6RSS_UDPF)
@@ -138,7 +112,6 @@ RxFillRtl8111EChecksumInfo(
             &rx->ChecksumExtension,
             packetIndex);
 
-    packet->Layout.Layer2Type = NetPacketLayer2TypeEthernet;
     checksumInfo->Layer2 =
         (rxd->RxDescDataIpv6Rss.status & RXS_CRC)
         ? NetPacketRxChecksumEvaluationInvalid
@@ -153,7 +126,7 @@ RxFillRtl8111EChecksumInfo(
     {
         packet->Layout.Layer3Type = NetPacketLayer3TypeIPv4UnspecifiedOptions;
 
-        if (adapter->IpHwChkSum)
+        if (adapter->RxIpHwChkSum)
         {
             checksumInfo->Layer3 =
                 (rxd->RxDescDataIpv6Rss.status & RXS_IPF)
@@ -179,7 +152,7 @@ RxFillRtl8111EChecksumInfo(
     {
         packet->Layout.Layer4Type = NetPacketLayer4TypeTcp;
 
-        if (adapter->TcpHwChkSum)
+        if (adapter->RxTcpHwChkSum)
         {
             checksumInfo->Layer4 =
                 (rxd->RxDescDataIpv6Rss.TcpUdpFailure & TXS_TCPCS)
@@ -191,7 +164,7 @@ RxFillRtl8111EChecksumInfo(
     {
         packet->Layout.Layer4Type = NetPacketLayer4TypeUdp;
 
-        if (adapter->UdpHwChkSum)
+        if (adapter->RxUdpHwChkSum)
         {
             checksumInfo->Layer4 =
                 (rxd->RxDescDataIpv6Rss.TcpUdpFailure & TXS_UDPCS)
@@ -224,56 +197,121 @@ RtFillRxChecksumInfo(
     }
 }
 
+static
+void
+RtFillReceiveScalingInfo(
+    _In_ RT_RXQUEUE const *rx,
+    _In_ RT_RX_DESC const *rxd,
+    _In_ UINT32 packetIndex
+    )
+{
+    NET_PACKET_HASH * hash =
+        NetExtensionGetPacketHash(
+            &rx->HashValueExtension,
+            packetIndex);
+
+    hash->ProtocolType = NetPacketHashProtocolTypeNone;
+    hash->HashValue = 0;
+
+    if (WI_IsFlagSet(rxd->RxDescDataIpv6Rss.IpRssTava, RXS_IPV6RSS_RSS_IPV4))
+    {
+        WI_SetFlag(hash->ProtocolType, NetPacketHashProtocolTypeIPv4);
+
+        if (WI_IsFlagSet(rxd->RxDescDataIpv6Rss.IpRssTava, RXS_IPV6RSS_RSS_TCP))
+        {
+            WI_SetFlag(hash->ProtocolType, NetPacketHashProtocolTypeTcp);
+        }
+    }
+
+    if (WI_IsFlagSet(rxd->RxDescDataIpv6Rss.IpRssTava, RXS_IPV6RSS_RSS_IPV6))
+    {
+        WI_SetFlag(hash->ProtocolType, NetPacketHashProtocolTypeIPv6);
+
+        if (WI_IsFlagSet(rxd->RxDescDataIpv6Rss.IpRssTava, RXS_IPV6RSS_RSS_TCP))
+        {
+            WI_SetFlag(hash->ProtocolType, NetPacketHashProtocolTypeTcp);
+        }
+    }
+
+    if (hash->ProtocolType)
+    {
+        auto fr = NetRingCollectionGetFragmentRing(rx->Rings);
+
+        auto fragmentVirtualAddress = NetExtensionGetFragmentVirtualAddress(&rx->VirtualAddressExtension, fr->BeginIndex);
+        auto hashValueAddress = reinterpret_cast<unsigned char *>(fragmentVirtualAddress->VirtualAddress) + rxd->RxDescDataIpv6Rss.length;
+        hashValueAddress += 3; // reversed
+
+        auto hashValue = reinterpret_cast<unsigned char *>(&hash->HashValue);
+        *hashValue++ = *hashValueAddress--;
+        *hashValue++ = *hashValueAddress--;
+        *hashValue++ = *hashValueAddress--;
+        *hashValue = *hashValueAddress;
+    }
+}
+
 void
 RxIndicateReceives(
     _In_ RT_RXQUEUE *rx
     )
 {
-    NET_RING_FRAGMENT_ITERATOR fi = NetRingGetDrainFragments(rx->Rings);
-    NET_RING_PACKET_ITERATOR pi = NetRingGetAllPackets(rx->Rings);
-    while (NetFragmentIteratorHasAny(&fi))
+    NET_RING * pr = NetRingCollectionGetPacketRing(rx->Rings);
+    NET_RING * fr = NetRingCollectionGetFragmentRing(rx->Rings);
+
+    while (fr->BeginIndex != fr->NextIndex)
     {
-        UINT32 index = NetFragmentIteratorGetIndex(&fi);
-        RT_RX_DESC const * rxd = &rx->RxdBase[index];
+        UINT32 const fragmentIndex = fr->BeginIndex;
+        RT_RX_DESC const * rxd = &rx->RxdBase[fragmentIndex];
 
         if (0 != (rxd->RxDescDataIpv6Rss.status & RXS_OWN))
             break;
 
-        NET_FRAGMENT * fragment = NetFragmentIteratorGetFragment(&fi);
+        if (pr->BeginIndex == pr->EndIndex)
+            break;
+
+        // If there is a packet available we are guaranteed to have a fragment as well
+        NT_FRE_ASSERT(fr->BeginIndex != fr->EndIndex);
+
+        NET_FRAGMENT * fragment = NetRingGetFragmentAtIndex(fr, fragmentIndex);
         fragment->ValidLength = rxd->RxDescDataIpv6Rss.length - FRAME_CRC_SIZE;
+        fragment->Capacity = fragment->ValidLength;
         fragment->Offset = 0;
 
-        NET_PACKET * packet = NetPacketIteratorGetPacket(&pi);
-        packet->FragmentIndex = index;
+        // Link fragment and packet
+        UINT32 const packetIndex = pr->BeginIndex;
+        NET_PACKET* packet = NetRingGetPacketAtIndex(pr, packetIndex);
+        packet->FragmentIndex = fragmentIndex;
         packet->FragmentCount = 1;
 
         if (rx->ChecksumExtension.Enabled)
         {
             // fill packetTcpChecksum
-            RtFillRxChecksumInfo(rx, rxd, NetPacketIteratorGetIndex(&pi), packet);
+            RtFillRxChecksumInfo(rx, rxd, packetIndex, packet);
         }
 
-        RtUpdateRecvStats(rx, rxd, fragment->ValidLength);
+        if (rx->HashValueExtension.Enabled && rx->Adapter->RssEnabled)
+        {
+            // fill packet hash value
+            RtFillReceiveScalingInfo(rx, rxd, packetIndex);
+        }
 
-        NetFragmentIteratorAdvance(&fi);
-        NetPacketIteratorAdvance(&pi);
+        packet->Layout.Layer2Type = NetPacketLayer2TypeEthernet;
+
+        pr->BeginIndex = NetRingIncrementIndex(pr, pr->BeginIndex);
+        fr->BeginIndex = NetRingIncrementIndex(fr, fr->BeginIndex);
     }
-    NetFragmentIteratorSet(&fi);
-    NetPacketIteratorSet(&pi);
 }
 
 static
 void
 RtPostRxDescriptor(
     _In_ RT_RX_DESC * desc,
-    _In_ NET_FRAGMENT const * fragment,
     _In_ NET_FRAGMENT_LOGICAL_ADDRESS const * logicalAddress,
     _In_ UINT16 status
     )
 {
     desc->BufferAddress = logicalAddress->LogicalAddress;
     desc->RxDescDataIpv6Rss.TcpUdpFailure = 0;
-    desc->RxDescDataIpv6Rss.length = fragment->Capacity;
+    desc->RxDescDataIpv6Rss.length = RT_MAX_FRAME_SIZE;
     desc->RxDescDataIpv6Rss.VLAN_TAG.Value = 0;
 
     MemoryBarrier();
@@ -288,21 +326,17 @@ RxPostBuffers(
     )
 {
     NET_RING * fr = NetRingCollectionGetFragmentRing(rx->Rings);
-    NET_RING_FRAGMENT_ITERATOR fi = NetRingGetPostFragments(rx->Rings);
 
-    while (NetFragmentIteratorHasAny(&fi))
+    while (fr->NextIndex != fr->EndIndex)
     {
-        UINT32 const index = NetFragmentIteratorGetIndex(&fi);
-        NET_FRAGMENT_LOGICAL_ADDRESS const * logicalAddress = NetExtensionGetFragmentLogicalAddress(
-            &rx->LogicalAddressExtension, index);
+        UINT32 const index = fr->NextIndex;
 
         RtPostRxDescriptor(&rx->RxdBase[index],
-            NetFragmentIteratorGetFragment(&fi),
-            logicalAddress,
+            NetExtensionGetFragmentLogicalAddress(&rx->LogicalAddressExtension, index),
             RXS_OWN | (fr->ElementIndexMask == index ? RXS_EOR : 0));
-        NetFragmentIteratorAdvance(&fi);
+
+        fr->NextIndex = NetRingIncrementIndex(fr, fr->NextIndex);
     }
-    NetFragmentIteratorSet(&fi);
 }
 
 NTSTATUS
@@ -425,7 +459,7 @@ EvtRxQueueStop(
 
     WdfSpinLockAcquire(rx->Adapter->Lock);
 
-    bool count = 0;
+    size_t count = 0;
     for (size_t i = 0; i < ARRAYSIZE(rx->Adapter->RxQueues); i++)
     {
         if (rx->Adapter->RxQueues[i])
@@ -516,17 +550,18 @@ EvtRxQueueCancel(
     // after cancel until all packets are returned to the framework.
     RxIndicateReceives(rx);
 
-    NET_RING_PACKET_ITERATOR pi = NetRingGetAllPackets(rx->Rings);
-    while(NetPacketIteratorHasAny(&pi))
-    {
-        NetPacketIteratorGetPacket(&pi)->Ignore = 1;
-        NetPacketIteratorAdvance(&pi);
-    }
-    NetPacketIteratorSet(&pi);
+    NET_RING * pr = NetRingCollectionGetPacketRing(rx->Rings);
 
-    NET_RING_FRAGMENT_ITERATOR fi = NetRingGetAllFragments(rx->Rings);
-    NetFragmentIteratorAdvanceToTheEnd(&fi);
-    NetFragmentIteratorSet(&fi);
+    while (pr->BeginIndex != pr->EndIndex)
+    {
+        NET_PACKET * packet = NetRingGetPacketAtIndex(pr, pr->BeginIndex);
+        packet->Ignore = 1;
+
+        pr->BeginIndex = NetRingIncrementIndex(pr, pr->BeginIndex);
+    }
+
+    NET_RING * fr = NetRingCollectionGetFragmentRing(rx->Rings);
+    fr->BeginIndex = fr->EndIndex;
 
     TraceExit();
 }

@@ -9,14 +9,6 @@
       <Configuration>Release</Configuration>
       <Platform>x64</Platform>
     </ProjectConfiguration>
-    <ProjectConfiguration Include="Debug|Win32">
-      <Configuration>Debug</Configuration>
-      <Platform>Win32</Platform>
-    </ProjectConfiguration>
-    <ProjectConfiguration Include="Release|Win32">
-      <Configuration>Release</Configuration>
-      <Platform>Win32</Platform>
-    </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="PropertySheets">
     <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
@@ -34,7 +26,7 @@
     <TargetVersion>Windows10</TargetVersion>
     <NetAdapterDriver>true</NetAdapterDriver>
     <NETADAPTER_VERSION_MAJOR>2</NETADAPTER_VERSION_MAJOR>
-    <NETADAPTER_VERSION_MINOR>0</NETADAPTER_VERSION_MINOR>
+    <NETADAPTER_VERSION_MINOR>3</NETADAPTER_VERSION_MINOR>
     <KMDF_VERSION_MAJOR>1</KMDF_VERSION_MAJOR>
     <KMDF_VERSION_MINOR>23</KMDF_VERSION_MINOR>
     <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">True</UseDebugLibraries>
@@ -42,7 +34,7 @@
     <DriverTargetPlatform>Universal</DriverTargetPlatform>
   </PropertyGroup>
   <PropertyGroup Label="Configuration" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <NetAdapterDriverPreview>true</NetAdapterDriverPreview>
+    <NetAdapterDriverPreview>false</NetAdapterDriverPreview>
   </PropertyGroup>
   <!-- Needed by any VcxProj -->
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
@@ -65,7 +57,7 @@
     </ClCompile>
     <ClCompile>
       <PrecompiledHeaderFile>precomp.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\km\netcx\kmdf\adapter\2.2\</AdditionalIncludeDirectories>
     </ClCompile>
     <Inf>
       <VersionHeaderPath>
@@ -73,11 +65,18 @@
       <SpecifyDriverVerDirectiveVersion>true</SpecifyDriverVerDirectiveVersion>
       <TimeStamp>1.0</TimeStamp>
     </Inf>
+    <DriverSign>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Release|x64'">/fd SHA256 %(AdditionalOptions)</AdditionalOptions>
+    </DriverSign>
+    <DriverSign>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">/fd SHA256 %(AdditionalOptions)</AdditionalOptions>
+    </DriverSign>
   </ItemDefinitionGroup>
   <!-- The WrappedTaskItems label is used by the conversion tool to identify the location where items 
         associated with wrapped tasks will reside.-->
   <ItemGroup Label="WrappedTaskItems">
     <ClInclude Include="adapter.h" />
+    <ClInclude Include="common.h" />
     <ClInclude Include="configuration.h" />
     <ClInclude Include="device.h" />
     <ClInclude Include="eeprom.h" />
@@ -93,6 +92,8 @@
     <ClInclude Include="statistics.h" />
     <ClInclude Include="trace.h" />
     <ClInclude Include="txqueue.h" />
+    <ClInclude Include="wistd_config.h" />
+    <ClInclude Include="wistd_type_traits.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="adapter.cpp" />

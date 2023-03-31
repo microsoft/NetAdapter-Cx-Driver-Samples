@@ -14,8 +14,6 @@
 typedef struct _RT_INTERRUPT RT_INTERRUPT;
 typedef struct _RT_TALLY RT_TALLY;
 
-#pragma region Setting Enumerations
-
 typedef enum _RT_DUPLEX_STATE : UCHAR {
     RtDuplexNone = 0,
     RtDuplexHalf = 1,
@@ -30,14 +28,16 @@ typedef enum _RT_CHKSUM_OFFLOAD : UCHAR
     RtChecksumOffloadTxRxEnabled = 3,
 } RT_CHKSUM_OFFLOAD;
 
-typedef enum _RT_LSO_OFFLOAD : UCHAR
+typedef enum _RT_GSO_OFFLOAD : UCHAR
 {
-    RtLsoOffloadDisabled = 0,
-    RtLsoOffloadEnabled = 1,
-} RT_LSO_OFFLOAD;
+    RtGsoOffloadDisabled = 0,
+    RtGsoOffloadEnabled = 1,
+} RT_GSO_OFFLOAD;
 
-#define RT_LSO_OFFLOAD_MAX_SIZE 64000
-#define RT_LSO_OFFLOAD_MIN_SEGMENT_COUNT 2
+#define RT_GSO_OFFLOAD_MAX_SIZE 64000
+#define RT_GSO_OFFLOAD_MIN_SEGMENT_COUNT 2
+#define RT_GSO_OFFLOAD_LAYER_4_HEADER_OFFSET_LIMIT 127
+#define RT_CHECKSUM_OFFLOAD_LAYER_4_HEADER_OFFSET_LIMIT 1023
 
 typedef enum _RT_IM_MODE
 {
@@ -79,8 +79,6 @@ typedef enum _RT_SPEED_DUPLEX_MODE {
 
 } RT_SPEED_DUPLEX_MODE;
 
-#pragma endregion
-
 // Context for NETADAPTER
 typedef struct _RT_ADAPTER
 {
@@ -89,8 +87,8 @@ typedef struct _RT_ADAPTER
     WDFDEVICE WdfDevice;
 
     // Handle to default Tx and Rx Queues
-    NETPACKETQUEUE TxQueue;
-    NETPACKETQUEUE RxQueues[RT_NUMBER_OF_QUEUES];
+    NETPACKETQUEUE TxQueues[RT_NUMBER_OF_TX_QUEUES];
+    NETPACKETQUEUE RxQueues[RT_NUMBER_OF_RX_QUEUES];
 
     // Pointer to interrupt object
     RT_INTERRUPT *Interrupt;
@@ -113,17 +111,6 @@ typedef struct _RT_ADAPTER
     // multicast list
     UINT MCAddressCount;
     NET_ADAPTER_LINK_LAYER_ADDRESS MCList[RT_MAX_MCAST_LIST];
-
-    // Packet counts
-    ULONG64 InUcastOctets;
-    ULONG64 InMulticastOctets;
-    ULONG64 InBroadcastOctets;
-    ULONG64 OutUCastPkts;
-    ULONG64 OutMulticastPkts;
-    ULONG64 OutBroadcastPkts;
-    ULONG64 OutUCastOctets;
-    ULONG64 OutMulticastOctets;
-    ULONG64 OutBroadcastOctets;
 
     ULONG64 TotalTxErr;
     ULONG   TotalRxErr;
@@ -159,9 +146,13 @@ typedef struct _RT_ADAPTER
     USHORT ReceiveBuffers;
     USHORT TransmitBuffers;
 
-    BOOLEAN IpHwChkSum;
-    BOOLEAN TcpHwChkSum;
-    BOOLEAN UdpHwChkSum;
+    BOOLEAN TxIpHwChkSum;
+    BOOLEAN TxTcpHwChkSum;
+    BOOLEAN TxUdpHwChkSum;
+
+    BOOLEAN RxIpHwChkSum;
+    BOOLEAN RxTcpHwChkSum;
+    BOOLEAN RxUdpHwChkSum;
 
     ULONG ChksumErrRxIpv4Cnt;
     ULONG ChksumErrRxTcpIpv6Cnt;
@@ -184,13 +175,13 @@ typedef struct _RT_ADAPTER
     bool EEPROMInUse;
 
     // ReceiveScaling
+    bool RssEnabled;
     UINT32 RssIndirectionTable[RT_INDIRECTION_TABLE_SIZE];
 
     RT_FLOW_CONTROL FlowControl;
 
-    RT_LSO_OFFLOAD LSOv4;
-    RT_LSO_OFFLOAD LSOv6;
-    bool RssEnabled;
+    RT_GSO_OFFLOAD LSOv4;
+    RT_GSO_OFFLOAD LSOv6;
 } RT_ADAPTER;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(RT_ADAPTER, RtGetAdapterContext);

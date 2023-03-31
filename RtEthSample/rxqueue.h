@@ -23,7 +23,9 @@ struct RT_RXQUEUE
     size_t RxdSize;
 
     NET_EXTENSION ChecksumExtension;
+    NET_EXTENSION VirtualAddressExtension;
     NET_EXTENSION LogicalAddressExtension;
+    NET_EXTENSION HashValueExtension;
 
     ULONG QueueId;
 };

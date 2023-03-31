@@ -46,6 +46,8 @@ CatalogFile.NT          = RtEthSample.cat
 [RTL8168.ndi.NT]
 FeatureScore            = 0xFE
 
+CopyFiles               = RtEthSample.CopyFiles
+
 Characteristics         = 0x04  ; NCF_PHYSICAL
 
 ; TODO: Update with the type of bus (PCI, USB, or custom) your device uses.
@@ -65,7 +67,6 @@ BusType                 = 5     ; PCIBus
 *AccessType             = 2     ; NET_IF_ACCESS_BROADCAST
 *HardwareLoopback       = 0     ; false
 
-CopyFiles               = MyCopyFiles
 AddReg                  = ndi.reg
 
 ; To make it easier to share common keywords across different devices, we have
@@ -79,6 +80,8 @@ AddReg                  = InterruptModeration.kw
 AddReg                  = InterruptModerationLevel.kw
 AddReg                  = OffloadChecksum.kw
 AddReg                  = PriorityVlanTag.kw
+AddReg                  = LSO.kw
+AddReg                  = ReceiveSideScaling.kw
 
 [ndi.reg]
 ; TODO: Update these if your device is not Ethernet.
@@ -103,10 +106,9 @@ StartType               = 3 ; SERVICE_DEMAND_START
 ErrorControl            = 1 ; SERVICE_ERROR_NORMAL
 ; TODO: Update the name of your binary.
 ServiceBinary           = %13%\RtEthSample.sys
-AddReg                  = RtEthSample.Service.Reg
 
-[RtEthSample.Service.Reg]
-HKR,,                   BootFlags, 0x00010001, 1 ; CM_SERVICE_NETWORK_BOOT_LOAD
+[RtEthSample.CopyFiles]
+RtEthSample.sys
 
 [Service.EventLog]
 AddReg                  = Service.AddEventLog.reg
@@ -114,14 +116,8 @@ AddReg                  = Service.AddEventLog.reg
 [Service.AddEventLog.reg]
 HKR,,                   EventMessageFile, 0x00020000, "%%SystemRoot%%\System32\netevent.dll"
 HKR,,                   TypesSupported,   0x00010001, 7
-
-; TODO: List off all the binaries that are part of your driver package.
-; Typically this is just the .sys file.
-[MyCopyFiles]
-RtEthSample.sys
-
 [DestinationDirs]
-MyCopyFiles   = 13
+RtEthSample.CopyFiles   = 13
 
 [SourceDisksNames]
 1 = %DiskDescription%
@@ -224,17 +220,36 @@ HKR,Ndi\params\*UDPChecksumOffloadIPv6\enum,    "2",            0,  %RxEnabled%
 HKR,Ndi\params\*UDPChecksumOffloadIPv6\enum,    "3",            0,  %RxTxEnabled%
 
 [PriorityVlanTag.kw]
-HKR,Ndi\Params\*PriorityVlanTag,        ParamDesc,      0,  %PriorityVLAN%
-HKR,Ndi\Params\*PriorityVlanTag,        Default,        0,  "3"
-HKR,Ndi\Params\*PriorityVlanTag,        Type,           0,  "enum"
-HKR,Ndi\Params\*PriorityVlanTag\enum,   "0",            0,  %PriorityVLANDisabled%
-HKR,Ndi\Params\*PriorityVlanTag\enum,   "1",            0,  %PriorityEnabled%
-HKR,Ndi\Params\*PriorityVlanTag\enum,   "2",            0,  %VLANEnabled%
-HKR,Ndi\Params\*PriorityVlanTag\enum,   "3",            0,  %PriorityVLANEnabled%
+HKR,Ndi\Params\*PriorityVlanTag,                ParamDesc,      0,  %PriorityVLAN%
+HKR,Ndi\Params\*PriorityVlanTag,                Default,        0,  "3"
+HKR,Ndi\Params\*PriorityVlanTag,                Type,           0,  "enum"
+HKR,Ndi\Params\*PriorityVlanTag\enum,           "0",            0,  %PriorityVLANDisabled%
+HKR,Ndi\Params\*PriorityVlanTag\enum,           "1",            0,  %PriorityEnabled%
+HKR,Ndi\Params\*PriorityVlanTag\enum,           "2",            0,  %VLANEnabled%
+HKR,Ndi\Params\*PriorityVlanTag\enum,           "3",            0,  %PriorityVLANEnabled%
 
-;
-; Localized strings
-;
+[LSO.kw]
+HKR,Ndi\Params\*LsoV2Ipv4,                      ParamDesc,      0,  %LSOv2Ipv4%
+HKR,Ndi\Params\*LsoV2Ipv4,                      Type,           0,  "enum"
+HKR,Ndi\Params\*LsoV2Ipv4,                      Default,        0,  "1"
+HKR,Ndi\Params\*LsoV2Ipv4\enum,                 "0",            0,  %Disabled%
+HKR,Ndi\Params\*LsoV2Ipv4\enum,                 "1",            0,  %Enabled%
+
+HKR,Ndi\Params\*LsoV2Ipv6,                      ParamDesc,      0,  %LSOv2Ipv6%
+HKR,Ndi\Params\*LsoV2Ipv6,                      Type,           0,  "enum"
+HKR,Ndi\Params\*LsoV2Ipv6,                      Default,        0,  "1"
+HKR,Ndi\Params\*LsoV2Ipv6\enum,                 "0",            0,  %Disabled%
+HKR,Ndi\Params\*LsoV2Ipv6\enum,                 "1",            0,  %Enabled%
+
+[ReceiveSideScaling.kw]
+HKR,Ndi\Params\*RSS,                            ParamDesc,      0, "%ReceiveSideScaling%"
+HKR,Ndi\Params\*RSS,                            default,        0, "1"
+HKR,Ndi\Params\*RSS,                            type,           0, "enum"
+HKR,Ndi\Params\*RSS,                            optional,       0, "0"
+HKR,Ndi\Params\*RSS\enum,                       "0",            0,  %Disabled%"
+HKR,Ndi\Params\*RSS\enum,                       "1",            0,  %Enabled%"
+HKR,                                            "", *RSS,       0, "1"
+
 [Strings]
 Provider                 = "Realtek"
 AutoDetect               = "Auto Negotiation"
@@ -257,11 +272,12 @@ TxEnabled                = "Tx Enabled"
 RxEnabled                = "Rx Enabled"
 RxTxEnabled              = "Rx & Tx Enabled"
 FlowControl              = "Flow Control"
-PriorityVLAN             = "Packet Priority & VLAN"
-PriorityVLANDisabled     = "Packet Priority & VLAN Disabled"
+PriorityVLAN             = "Priority & VLAN"
+PriorityVLANDisabled     = "Priority & VLAN Disabled"
+PriorityVLANEnabled      = "Priority & VLAN Enabled"
 PriorityEnabled          = "Packet Priority Enabled"
+ReceiveSideScaling       = "Receive Side Scaling"
 VLANEnabled              = "VLAN Enabled"
-PriorityVLANEnabled      = "Packet Priority & VLAN Enabled"
 InterruptModeration      = "Interrupt Moderation"
 InterruptModerationLevel = "Interrupt Moderation Level"
 ReceiveBuffers           = "Receive Buffers"
@@ -270,6 +286,9 @@ IMEnabled                = "Enabled"
 IMLow                    = "Low"
 IMMedium                 = "Medium"
 TransmitBuffers          = "Transmit Buffers"
+
+LSOv2Ipv4                = "Large Send Offload v2 (IPv4)"
+LSOv2Ipv6                = "Large Send Offload v2 (IPv6)"
 
 RTL8168.DeviceDesc       = "Realtek PCIe GBE Family Controller NetAdapter Sample Driver"
 Service.DisplayName      = "Realtek PCIe GBE Family Controller NetAdapter Sample Driver"

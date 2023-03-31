@@ -24,6 +24,9 @@
     <ClInclude Include="adapter.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="common.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="device.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -68,28 +71,28 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="driver.cpp">
+    <ClCompile Include="txqueue.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="adapter.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="configuration.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="device.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="driver.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="eeprom.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="txqueue.cpp">
+    <ClCompile Include="gigamac.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="rxqueue.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="txqueue.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="configuration.cpp">
+    <ClCompile Include="interrupt.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="link.cpp">
@@ -101,10 +104,10 @@
     <ClCompile Include="power.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="interrupt.cpp">
+    <ClCompile Include="rxqueue.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="gigamac.cpp">
+    <ClCompile Include="txqueue.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

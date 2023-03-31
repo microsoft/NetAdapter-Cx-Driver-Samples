@@ -39,7 +39,6 @@ RT_ADVANCED_PROPERTY RtSupportedProperties[] =
     { NDIS_STRING_CONST("*WakeOnMagicPacket"),       RT_OFFSET(WakeOnMagicPacketEnabled), RT_SIZE(WakeOnMagicPacketEnabled), true,                             false,                            true },
     { NDIS_STRING_CONST("*InterruptModeration"),     RT_OFFSET(InterruptModerationMode),  RT_SIZE(InterruptModerationMode),  RtInterruptModerationEnabled,     RtInterruptModerationDisabled,    RtInterruptModerationEnabled },
     { NDIS_STRING_CONST("*FlowControl"),             RT_OFFSET(FlowControl),              RT_SIZE(FlowControl),              RtFlowControlTxRxEnabled,         RtFlowControlDisabled,            RtFlowControlTxRxEnabled },
-    { NDIS_STRING_CONST("*RSS"),                     RT_OFFSET(RssEnabled),               RT_SIZE(RssEnabled),               false,                            false,                            true },
 
     // Custom Keywords
     { NDIS_STRING_CONST("InterruptModerationLevel"), RT_OFFSET(InterruptModerationLevel), RT_SIZE(InterruptModerationLevel), RtInterruptModerationLow,         RtInterruptModerationLow,         RtInterruptModerationMedium },
