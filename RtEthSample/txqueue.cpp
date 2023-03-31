@@ -71,6 +71,16 @@ RtGetPacketChecksumSetting(
         if (checksumInfo->Layer4 == NetPacketTxChecksumActionRequired)
         {
 
+            const USHORT layer4HeaderOffset =
+                packet->Layout.Layer2HeaderLength +
+                packet->Layout.Layer3HeaderLength;
+
+            UNREFERENCED_PARAMETER(layer4HeaderOffset);
+
+            NT_ASSERT(packet->Layout.Layer2HeaderLength != 0U);
+            NT_ASSERT(packet->Layout.Layer3HeaderLength != 0U);
+            NT_ASSERT(layer4HeaderOffset < 0xff);
+
             if (packet->Layout.Layer4Type == NetPacketLayer4TypeTcp)
             {
                 return TXS_IPV6RSS_TCPCS | TXS_IPV6RSS_IPV4CS;
